@@ -15,8 +15,6 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
@@ -43,23 +41,12 @@ jobs:
     - name: Build APK with Gradle
       run: |
         cd GaviruCamStudio-Android
-        gradle assembleDebug --stacktrace --no-daemon 2>&1 | tee /tmp/build_log.txt
+        gradle assembleDebug --stacktrace --no-daemon
 
-    - name: Push Error Log on Failure
-      if: failure()
-      run: |
-        git config user.name "github-actions"
-        git config user.email "github-actions@github.com"
-        git checkout -B build-logs
-        cp /tmp/build_log.txt ./last_error.log
-        git add last_error.log
-        git commit -m "Build error log" || true
-        git push origin build-logs --force
-
-    - name: Copy & Rename APK
+    - name: Prepare Output Directory
       run: |
         mkdir -p build-output
-        find GaviruCamStudio-Android/app/build/outputs/apk/ -name "*.apk" -exec cp {} build-output/GaviruCamStudio-v1.0.0.apk \;
+        cp GaviruCamStudio-Android/app/build/outputs/apk/debug/app-debug.apk build-output/GaviruCamStudio-v1.0.0.apk
         ls -lh build-output/
 
     - name: Upload APK Artifact
