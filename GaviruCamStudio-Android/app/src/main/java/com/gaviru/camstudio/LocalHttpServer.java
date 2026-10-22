@@ -181,6 +181,7 @@ public class LocalHttpServer {
         status.put("connected", canonEngine.isConnected());
         status.put("streaming", canonEngine.isLiveViewStreaming());
         status.put("fps", canonEngine.getCurrentFps());
+        status.put("mirrorUp", canonEngine.isMirrorUp());
         status.put("statusMessage", canonEngine.getStatusMessage());
         status.put("roomName", roomName);
 
@@ -394,10 +395,10 @@ public class LocalHttpServer {
                 "        const data = await res.json();\n" +
                 "        if (data.streaming) {\n" +
                 "          statusBadge.className = 'badge';\n" +
-                "          statusBadge.textContent = '🟢 Canon Live: ' + data.fps.toFixed(1) + ' FPS';\n" +
+                "          statusBadge.textContent = '🟢 Shutter Open: ' + data.fps.toFixed(1) + ' FPS';\n" +
                 "        } else if (data.connected) {\n" +
                 "          statusBadge.className = 'badge';\n" +
-                "          statusBadge.textContent = '🟡 Canon Connected';\n" +
+                "          statusBadge.textContent = data.mirrorUp ? '🟢 Mirror Up (Shutter Open)' : '🟡 Canon Connected';\n" +
                 "        } else {\n" +
                 "          statusBadge.className = 'badge disconnected';\n" +
                 "          statusBadge.textContent = '🔴 Disconnected';\n" +

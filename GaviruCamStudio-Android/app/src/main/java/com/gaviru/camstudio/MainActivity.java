@@ -140,7 +140,7 @@ public class MainActivity extends AppCompatActivity {
                 localServer.stop();
             }
 
-            canonEngine = new CanonPtpIpEngine(cameraIp, 15740);
+            canonEngine = new CanonPtpIpEngine(this, cameraIp, 15740);
             canonEngine.start();
 
             localServer = new LocalHttpServer(this, canonEngine);
