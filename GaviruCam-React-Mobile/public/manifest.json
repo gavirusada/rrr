@@ -1,0 +1,25 @@
+{
+  "name": "Gaviru Cam Mobile — VDO.Ninja Broadcaster",
+  "short_name": "GaviruCam",
+  "description": "Mobile Camera to OBS Studio 4K Broadcaster without PC",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#080a0f",
+  "theme_color": "#ef4444",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

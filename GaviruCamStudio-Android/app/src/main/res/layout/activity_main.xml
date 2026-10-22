@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg_dark">
+
+    <!-- Top Quick Bar -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/surface_dark"
+        android:padding="6dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnVdoLive"
+                android:layout_width="wrap_content"
+                android:layout_height="38dp"
+                android:text="🥷 VDO 4K Live"
+                android:textSize="11sp"
+                android:textColor="@color/text_white"
+                android:backgroundTint="@color/primary"
+                android:layout_marginEnd="6dp" />
+
+            <Button
+                android:id="@+id/btnRemoteControl"
+                android:layout_width="wrap_content"
+                android:layout_height="38dp"
+                android:text="📷 Cam Control"
+                android:textSize="11sp"
+                android:textColor="@color/text_white"
+                android:backgroundTint="#3B82F6"
+                android:layout_marginEnd="6dp" />
+
+            <Button
+                android:id="@+id/btnPhoneCamPush"
+                android:layout_width="wrap_content"
+                android:layout_height="38dp"
+                android:text="📱 Phone ➔ OBS"
+                android:textSize="11sp"
+                android:textColor="@color/text_white"
+                android:backgroundTint="@color/green_neon"
+                android:layout_marginEnd="6dp" />
+
+            <Button
+                android:id="@+id/btnSettings"
+                android:layout_width="wrap_content"
+                android:layout_height="38dp"
+                android:text="⚙️ Server IP"
+                android:textSize="11sp"
+                android:textColor="@color/text_white"
+                android:backgroundTint="#475569" />
+
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:visibility="gone"
+        android:indeterminate="true" />
+
+    <!-- Main Live WebRTC & Control View -->
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/bg_dark" />
+
+</LinearLayout>

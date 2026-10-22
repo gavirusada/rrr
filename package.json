@@ -1,0 +1,30 @@
+{
+  "name": "rivet",
+  "version": "0.1.0",
+  "description": "Canon EOS Wi-Fi Live View bridge for OBS.",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "canon",
+    "eos",
+    "obs",
+    "ptp-ip",
+    "live-view",
+    "wifi"
+  ],
+  "engines": {
+    "bun": ">=1.3.0",
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build:node": "bun build src/main.ts --target=node --outfile dist/main.js",
+    "dev": "bun run src/main.ts",
+    "start": "node dist/main.js",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.3",
+    "typescript": "^5.9.3"
+  }
+}

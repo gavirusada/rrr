@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Gaviru Cam Studio</string>
+    <string name="vdo_monitor">VDO.Ninja Live</string>
+    <string name="camera_remote">Cam Controls</string>
+    <string name="phone_push">Phone Cam to OBS</string>
+    <string name="change_server">Connect Server</string>
+    <string name="server_prompt">Enter Gaviru Cam Studio Server URL or VDO Room:</string>
+    <string name="save">Connect</string>
+    <string name="cancel">Cancel</string>
+</resources>
