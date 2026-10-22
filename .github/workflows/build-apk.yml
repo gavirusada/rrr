@@ -40,18 +40,8 @@ jobs:
 
     - name: Build APK with Gradle
       run: |
-        set -o pipefail
         cd GaviruCamStudio-Android
-        gradle assembleDebug --stacktrace --no-daemon 2>&1 | tee ../BUILD_ERROR.md
-
-    - name: Save Error Log on Failure
-      if: failure()
-      run: |
-        git config user.name "github-actions"
-        git config user.email "github-actions@github.com"
-        git add BUILD_ERROR.md
-        git commit -m "Auto: build error" || true
-        git push origin main
+        gradle assembleDebug --stacktrace --no-daemon
 
     - name: Prepare Output Directory
       run: |
