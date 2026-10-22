@@ -16,7 +16,7 @@ import org.json.JSONObject;
 /**
  * Embedded Lightweight HTTP Server for Android (Port 8787)
  * Serves the Studio Web UI, MJPEG Live Stream (/stream), Snapshot (/snapshot.jpg),
- * and Remote Focus/Lens Control API (/api/command).
+ * and Remote Focus/Lens/Shutter Control API (/api/command).
  */
 public class LocalHttpServer {
 
@@ -178,10 +178,12 @@ public class LocalHttpServer {
     private void serveApiStatus(OutputStream out) throws Exception {
         JSONObject status = new JSONObject();
         status.put("ok", true);
+        status.put("cameraIp", canonEngine.getCameraIp() + ":" + canonEngine.getCameraPort());
         status.put("connected", canonEngine.isConnected());
         status.put("streaming", canonEngine.isLiveViewStreaming());
-        status.put("fps", canonEngine.getCurrentFps());
         status.put("mirrorUp", canonEngine.isMirrorUp());
+        status.put("fps", canonEngine.getCurrentFps());
+        status.put("totalFrames", canonEngine.getTotalFramesReceived());
         status.put("statusMessage", canonEngine.getStatusMessage());
         status.put("roomName", roomName);
 
@@ -210,6 +212,10 @@ public class LocalHttpServer {
         boolean success = false;
 
         switch (action) {
+            case "shutter_release": {
+                success = canonEngine.triggerShutterRelease();
+                break;
+            }
             case "focus_step": {
                 int step = json.optInt("step", 1);
                 int dir = step >= 0 ? 1 : 2; // 1 = Far, 2 = Near
@@ -218,10 +224,6 @@ public class LocalHttpServer {
             }
             case "cancel_af": {
                 success = canonEngine.cancelAutoFocus();
-                break;
-            }
-            case "shutter_release": {
-                success = canonEngine.triggerShutterRelease();
                 break;
             }
             case "set_iso": {
@@ -272,8 +274,9 @@ public class LocalHttpServer {
                 "    .brand { font-size:15px; font-weight:800; background:linear-gradient(90deg,#fff,#fbbf24); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }\n" +
                 "    .badge { font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; background:#102219; color:#6ee7b7; border:1px solid #10b981; transition:0.2s; }\n" +
                 "    .badge.disconnected { background:#251010; color:#fca5a5; border-color:#ef4444; }\n" +
+                "    .diag-bar { background:#090d16; padding:8px 14px; font-size:11px; font-family:monospace; border-bottom:1px solid #1e293b; display:flex; flex-direction:column; gap:4px; }\n" +
                 "    .viewport-box { position:relative; width:100%; aspect-ratio:3/2; background:#000; overflow:hidden; display:flex; align-items:center; justify-content:center; border-bottom:1px solid var(--border); }\n" +
-                "    canvas { width:100%; height:100%; object-fit:contain; display:block; cursor:crosshair; }\n" +
+                "    .live-img { width:100%; height:100%; object-fit:contain; display:block; cursor:crosshair; }\n" +
                 "    .af-box { position:absolute; width:64px; height:64px; border:2px solid #ef4444; border-radius:8px; pointer-events:none; transform:translate(-50%,-50%); transition:all 0.15s ease; opacity:0; box-shadow:0 0 14px rgba(239,68,68,0.7); }\n" +
                 "    .af-box.active { opacity:1; }\n" +
                 "    .af-box.locked { border-color:#10b981; box-shadow:0 0 14px rgba(16,185,129,0.8); }\n" +
@@ -283,6 +286,7 @@ public class LocalHttpServer {
                 "    button { font:inherit; font-weight:700; font-size:12.5px; border-radius:8px; border:1px solid var(--border); background:#171c2b; color:#fff; padding:10px 12px; cursor:pointer; transition:0.15s; flex:1; display:flex; align-items:center; justify-content:center; gap:6px; }\n" +
                 "    button:active { transform:scale(0.97); }\n" +
                 "    button.primary { background:linear-gradient(135deg,#ef4444,#dc2626); border-color:#ef4444; box-shadow:0 4px 12px rgba(239,68,68,0.35); }\n" +
+                "    button.shutter { background:linear-gradient(135deg,#dc2626,#991b1b); border-color:#ef4444; padding:14px; font-size:14px; box-shadow:0 0 16px rgba(239,68,68,0.45); }\n" +
                 "    button.accent { background:linear-gradient(135deg,#10b981,#059669); border-color:#10b981; }\n" +
                 "    button.gold { background:linear-gradient(135deg,#d97706,#b45309); border-color:#f59e0b; }\n" +
                 "    .slider-row { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#94a3b8; }\n" +
@@ -292,30 +296,48 @@ public class LocalHttpServer {
                 "<body>\n" +
                 "  <header>\n" +
                 "    <div class=\"brand\">🎥 Gaviru Cam Pro Mobile</div>\n" +
-                "    <div id=\"statusBadge\" class=\"badge disconnected\">Connecting...</div>\n" +
+                "    <div id=\"diagBadge\" class=\"badge disconnected\">Connecting...</div>\n" +
                 "  </header>\n" +
                 "\n" +
+                "  <!-- Real-Time Diagnostic Bar -->\n" +
+                "  <div class=\"diag-bar\">\n" +
+                "    <div style=\"display:flex; justify-content:space-between;\">\n" +
+                "      <span>📷 IP: <strong id=\"diagIp\" style=\"color:#38bdf8;\">Connecting...</strong></span>\n" +
+                "      <span>Mirror: <strong id=\"diagMirror\" style=\"color:#fde047;\">Checking...</strong></span>\n" +
+                "    </div>\n" +
+                "    <div style=\"display:flex; justify-content:space-between; color:#94a3b8;\">\n" +
+                "      <span id=\"diagDetail\">Initializing engine...</span>\n" +
+                "      <span>Frames: <strong id=\"diagFrames\" style=\"color:#4ade80;\">0</strong></span>\n" +
+                "    </div>\n" +
+                "  </div>\n" +
+                "\n" +
+                "  <!-- Live View Monitor -->\n" +
                 "  <div class=\"viewport-box\" onclick=\"onCanvasTap(event)\">\n" +
-                "    <canvas id=\"monitorCanvas\" width=\"1280\" height=\"720\"></canvas>\n" +
+                "    <img id=\"liveViewImg\" class=\"live-img\" src=\"/stream\" onerror=\"onStreamError()\" />\n" +
                 "    <div id=\"afBox\" class=\"af-box\"></div>\n" +
-                "    <div id=\"noSignalBanner\" style=\"position:absolute; color:#94a3b8; font-size:12px; text-align:center; padding:12px;\">\n" +
+                "    <div id=\"noSignalBanner\" style=\"display:none; position:absolute; color:#94a3b8; font-size:12px; text-align:center; padding:12px; background:rgba(0,0,0,0.85); border-radius:8px;\">\n" +
                 "      📷 Waiting for Canon Live View...<br>\n" +
-                "      <span style=\"font-size:11px; color:#64748b;\">Turn camera Mode Dial to <strong>M</strong> or <strong>P</strong></span>\n" +
+                "      <span style=\"font-size:11px; color:#f87171;\" id=\"bannerStatus\">Connecting to camera...</span>\n" +
                 "    </div>\n" +
                 "  </div>\n" +
                 "\n" +
                 "  <div class=\"controls\">\n" +
+                "    <!-- Shutter Release Button -->\n" +
+                "    <button class=\"shutter\" onclick=\"triggerShutter()\">\n" +
+                "      📸 Take Photo (Shutter Release)\n" +
+                "    </button>\n" +
+                "\n" +
                 "    <!-- VDO.Ninja 4K Live Broadcast to OBS -->\n" +
                 "    <div class=\"card\" style=\"border-color:#ef4444; background:#170f14;\">\n" +
                 "      <div style=\"font-size:13px; font-weight:800; color:#fca5a5;\">🚀 Stream Canon Camera to OBS Studio (VDO.Ninja)</div>\n" +
                 "      <p style=\"font-size:11px; color:#cbd5e1;\">Phone Camera එක නොව, Connect කර ඇති Canon Camera එකේ Live Feed එක OBS Studio එකට 4K/1080p High Quality වලින් stream වේ.</p>\n" +
                 "      <div class=\"btn-row\">\n" +
-                "        <button id=\"btnVdoBroadcast\" class=\"primary\" style=\"padding:12px;\" onclick=\"startVdoBroadcast()\">\n" +
+                "        <button class=\"primary\" style=\"padding:12px;\" onclick=\"startVdoBroadcast()\">\n" +
                 "          📡 Launch Canon ➔ OBS Broadcaster\n" +
                 "        </button>\n" +
                 "        <button class=\"gold\" style=\"max-width:120px;\" onclick=\"copyObsLink()\">📋 Copy OBS Link</button>\n" +
                 "      </div>\n" +
-                "      <div id=\"obsUrlDisplay\" style=\"font-size:11px; color:#fde68a; font-family:monospace; background:#000; padding:6px; border-radius:6px; word-break:break-all;\">\n" +
+                "      <div style=\"font-size:11px; color:#fde68a; font-family:monospace; background:#000; padding:6px; border-radius:6px; word-break:break-all;\">\n" +
                 "        OBS Link: https://vdo.ninja/?view=" + roomName + "&cleanoutput\n" +
                 "      </div>\n" +
                 "    </div>\n" +
@@ -334,7 +356,6 @@ public class LocalHttpServer {
                 "      </div>\n" +
                 "      <div class=\"btn-row\">\n" +
                 "        <button class=\"accent\" onclick=\"freezeFocusNow()\">🔒 Freeze Focus & Light (Sweet Spot)</button>\n" +
-                "        <button class=\"gold\" onclick=\"triggerShutter()\">📸 Take Photo</button>\n" +
                 "      </div>\n" +
                 "    </div>\n" +
                 "\n" +
@@ -353,58 +374,55 @@ public class LocalHttpServer {
                 "  </div>\n" +
                 "\n" +
                 "  <script>\n" +
-                "    const canvas = document.getElementById('monitorCanvas');\n" +
-                "    const ctx = canvas.getContext('2d');\n" +
+                "    const liveImg = document.getElementById('liveViewImg');\n" +
                 "    const afBox = document.getElementById('afBox');\n" +
-                "    const statusBadge = document.getElementById('statusBadge');\n" +
+                "    const diagIp = document.getElementById('diagIp');\n" +
+                "    const diagBadge = document.getElementById('diagBadge');\n" +
+                "    const diagMirror = document.getElementById('diagMirror');\n" +
+                "    const diagDetail = document.getElementById('diagDetail');\n" +
+                "    const diagFrames = document.getElementById('diagFrames');\n" +
                 "    const noSignalBanner = document.getElementById('noSignalBanner');\n" +
+                "    const bannerStatus = document.getElementById('bannerStatus');\n" +
                 "    let audioCtx = null;\n" +
                 "    let roomName = '" + roomName + "';\n" +
                 "\n" +
-                "    // Fetch continuous MJPEG or Snapshot into Canvas\n" +
-                "    const liveImg = new Image();\n" +
-                "    liveImg.crossOrigin = 'anonymous';\n" +
-                "    let isPolling = false;\n" +
-                "\n" +
-                "    function pollNextFrame() {\n" +
-                "      if (!isPolling) {\n" +
-                "        isPolling = true;\n" +
-                "        liveImg.src = '/snapshot.jpg?t=' + Date.now();\n" +
-                "      }\n" +
+                "    function onStreamError() {\n" +
+                "      noSignalBanner.style.display = 'block';\n" +
+                "      setTimeout(() => { liveImg.src = '/stream?t=' + Date.now(); }, 1000);\n" +
                 "    }\n" +
-                "    liveImg.onload = function() {\n" +
-                "      if (liveImg.naturalWidth > 0) {\n" +
-                "        canvas.width = liveImg.naturalWidth;\n" +
-                "        canvas.height = liveImg.naturalHeight;\n" +
-                "        ctx.drawImage(liveImg, 0, 0);\n" +
-                "        noSignalBanner.style.display = 'none';\n" +
-                "      }\n" +
-                "      isPolling = false;\n" +
-                "      setTimeout(pollNextFrame, 20);\n" +
-                "    };\n" +
-                "    liveImg.onerror = function() {\n" +
-                "      isPolling = false;\n" +
-                "      setTimeout(pollNextFrame, 150);\n" +
-                "    };\n" +
-                "    pollNextFrame();\n" +
                 "\n" +
-                "    // Poll Status from Engine\n" +
+                "    // Poll Diagnostic Status from Engine\n" +
                 "    setInterval(async () => {\n" +
                 "      try {\n" +
                 "        const res = await fetch('/api/status');\n" +
                 "        const data = await res.json();\n" +
+                "        diagIp.textContent = data.cameraIp;\n" +
+                "        diagFrames.textContent = data.totalFrames;\n" +
+                "        diagDetail.textContent = data.statusMessage;\n" +
+                "\n" +
                 "        if (data.streaming) {\n" +
-                "          statusBadge.className = 'badge';\n" +
-                "          statusBadge.textContent = '🟢 Shutter Open: ' + data.fps.toFixed(1) + ' FPS';\n" +
+                "          diagBadge.className = 'badge';\n" +
+                "          diagBadge.textContent = '🟢 ' + data.fps.toFixed(1) + ' FPS';\n" +
+                "          diagMirror.textContent = 'UP (Shutter Open)';\n" +
+                "          diagMirror.style.color = '#4ade80';\n" +
+                "          noSignalBanner.style.display = 'none';\n" +
                 "        } else if (data.connected) {\n" +
-                "          statusBadge.className = 'badge';\n" +
-                "          statusBadge.textContent = data.mirrorUp ? '🟢 Mirror Up (Shutter Open)' : '🟡 Canon Connected';\n" +
+                "          diagBadge.className = 'badge';\n" +
+                "          diagBadge.textContent = '🟡 Connected';\n" +
+                "          diagMirror.textContent = data.mirrorUp ? 'UP (Open)' : 'DOWN (Standby)';\n" +
+                "          diagMirror.style.color = data.mirrorUp ? '#4ade80' : '#fde047';\n" +
+                "          noSignalBanner.style.display = 'block';\n" +
+                "          bannerStatus.textContent = data.statusMessage;\n" +
                 "        } else {\n" +
-                "          statusBadge.className = 'badge disconnected';\n" +
-                "          statusBadge.textContent = '🔴 Disconnected';\n" +
+                "          diagBadge.className = 'badge disconnected';\n" +
+                "          diagBadge.textContent = '🔴 Disconnected';\n" +
+                "          diagMirror.textContent = 'Closed';\n" +
+                "          diagMirror.style.color = '#f87171';\n" +
+                "          noSignalBanner.style.display = 'block';\n" +
+                "          bannerStatus.textContent = data.statusMessage;\n" +
                 "        }\n" +
                 "      } catch(e) {}\n" +
-                "    }, 1200);\n" +
+                "    }, 800);\n" +
                 "\n" +
                 "    // Canon Pip-Pip Double Beep\n" +
                 "    function playCanonBeep() {\n" +
@@ -473,6 +491,7 @@ public class LocalHttpServer {
                 "\n" +
                 "    async function triggerShutter() {\n" +
                 "      playCanonBeep();\n" +
+                "      document.getElementById('lblFocusStatus').textContent = '📸 Shutter Released!';\n" +
                 "      await fetch('/api/command', {\n" +
                 "        method: 'POST',\n" +
                 "        headers: { 'Content-Type': 'application/json' },\n" +

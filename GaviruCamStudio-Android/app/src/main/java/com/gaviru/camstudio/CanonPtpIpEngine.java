@@ -22,10 +22,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Implements ISO 15740 PTP-IP standard with exact DataPhaseInfo and Canon EOS extensions:
  * - Persistent GUID for stable camera pairing
  * - Remote Mode & Event Mode activation (0x9114, 0x9115)
- * - Live View activation (flips mirror up, opens shutter) (0xD102, 0xD10B)
+ * - Live View activation: Canon EOS SetDevicePropValueEx (0x9110) & PTP (0x1016) for EvfOutputDevice (0xD102=3)
+ *   Flips the mirror up and opens the shutter!
  * - Live View frame streaming (0x9153 / 0x9027)
  * - Remote Lens Focus Drive (0x9155 / 0x9029)
- * - Remote Shutter Release (0x9128 / 0x902F)
+ * - Remote Shutter Release (0x9128 / 0x902F / 0x100E)
  */
 public class CanonPtpIpEngine {
 
@@ -52,6 +53,7 @@ public class CanonPtpIpEngine {
 
     private byte[] latestJpegFrame = null;
     private long lastFrameTime = 0;
+    private int totalFramesReceived = 0;
     private int frameCount = 0;
     private float currentFps = 0f;
     private long lastFpsCalcTime = 0;
@@ -92,7 +94,7 @@ public class CanonPtpIpEngine {
     }
 
     public boolean isLiveViewStreaming() {
-        return isLiveViewActive.get() && (System.currentTimeMillis() - lastFrameTime < 3000);
+        return isLiveViewActive.get() && (System.currentTimeMillis() - lastFrameTime < 3500);
     }
 
     public byte[] getLatestJpegFrame() {
@@ -111,8 +113,20 @@ public class CanonPtpIpEngine {
         return currentFps;
     }
 
+    public int getTotalFramesReceived() {
+        return totalFramesReceived;
+    }
+
     public boolean isMirrorUp() {
         return mirrorUp;
+    }
+
+    public String getCameraIp() {
+        return cameraIp;
+    }
+
+    public int getCameraPort() {
+        return cameraPort;
     }
 
     public void start() {
@@ -122,19 +136,19 @@ public class CanonPtpIpEngine {
         new Thread(() -> {
             while (isRunning.get()) {
                 try {
-                    statusMessage = "Connecting to Canon Wi-Fi (" + cameraIp + ":" + cameraPort + ")...";
+                    statusMessage = "Connecting to " + cameraIp + ":" + cameraPort + "...";
                     connectAndStream();
                 } catch (Exception e) {
                     lastError = e.getMessage();
                     statusMessage = "Error: " + e.getMessage();
-                    Log.e(TAG, "Connection error: " + e.getMessage(), e);
+                    Log.e(TAG, "Connection cycle error: " + e.getMessage(), e);
                 }
 
                 closeSockets();
 
                 if (isRunning.get()) {
                     try {
-                        Thread.sleep(3000);
+                        Thread.sleep(2500);
                     } catch (InterruptedException ignored) {}
                 }
             }
@@ -158,7 +172,6 @@ public class CanonPtpIpEngine {
 
     /**
      * Gets or creates a persistent GUID for Canon camera pairing.
-     * Randomizing GUID on every connect causes Canon cameras to reject the connection!
      */
     private byte[] getPersistentGuid() {
         SharedPreferences sp = context.getSharedPreferences("CanonPtpPrefs", Context.MODE_PRIVATE);
@@ -191,7 +204,7 @@ public class CanonPtpIpEngine {
         if (wifiNetwork != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
                 wifiNetwork.bindSocket(cmdSocket);
-                Log.i(TAG, "cmdSocket successfully bound to Wi-Fi network interface");
+                Log.i(TAG, "cmdSocket bound to Wi-Fi network interface");
             } catch (Exception e) {
                 Log.w(TAG, "Could not bind cmdSocket to Wi-Fi: " + e.getMessage());
             }
@@ -234,7 +247,7 @@ public class CanonPtpIpEngine {
         if (wifiNetwork != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
                 wifiNetwork.bindSocket(evtSocket);
-                Log.i(TAG, "evtSocket successfully bound to Wi-Fi network interface");
+                Log.i(TAG, "evtSocket bound to Wi-Fi network interface");
             } catch (Exception e) {
                 Log.w(TAG, "Could not bind evtSocket to Wi-Fi: " + e.getMessage());
             }
@@ -272,7 +285,7 @@ public class CanonPtpIpEngine {
             } catch (Exception ignored) {}
         }, "Canon-Evt-Drainer").start();
 
-        statusMessage = "Opening Session...";
+        statusMessage = "Opening PTP Session...";
 
         // 4. Open Session (OpCode: 0x1002, SessionID: 1, DataPhase: 0 - No Data Phase)
         sendOperationRequest(0x1002, 1);
@@ -298,8 +311,8 @@ public class CanonPtpIpEngine {
 
         // 6. Start Live View: Set EvfOutputDevice (0xD102) -> 3 (PC + LCD)
         // This is the command that flips up the mirror and opens the shutter!
-        statusMessage = "Activating Live View (Opening Shutter)...";
-        int[] evfOutputModes = {3, 2, 9, 8, 1};
+        statusMessage = "Opening Shutter / Raising Mirror...";
+        int[] evfOutputModes = {3, 2, 1, 9, 8};
         boolean evfSuccess = false;
         for (int m : evfOutputModes) {
             if (setDeviceProperty32(0xD102, m)) {
@@ -308,14 +321,18 @@ public class CanonPtpIpEngine {
                 break;
             }
         }
+        if (!evfSuccess) {
+            // Try alternative property 0xD1B0
+            setDeviceProperty32(0xD1B0, 3);
+        }
 
         // EvfMode (0xD10B) -> 1 (Enable EVF)
         setDeviceProperty32(0xD10B, 1);
 
         isLiveViewActive.set(true);
         mirrorUp = true;
-        statusMessage = "Canon Live View Active!";
-        Log.i(TAG, "Live View Active! Mirror is up, shutter is open. Polling frames...");
+        statusMessage = "Canon Live View Streaming!";
+        Log.i(TAG, "Live View Active! Mirror is up, shutter is open. Streaming frames...");
 
         // 7. Live View Polling Loop
         int consecutiveErrors = 0;
@@ -335,6 +352,7 @@ public class CanonPtpIpEngine {
                 if (jpeg != null && jpeg.length > 500) {
                     latestJpegFrame = jpeg;
                     lastFrameTime = System.currentTimeMillis();
+                    totalFramesReceived++;
                     frameCount++;
                     consecutiveErrors = 0;
 
@@ -343,7 +361,7 @@ public class CanonPtpIpEngine {
                         currentFps = (frameCount * 1000f) / (now - lastFpsCalcTime);
                         frameCount = 0;
                         lastFpsCalcTime = now;
-                        statusMessage = String.format("Canon Live: %.1f FPS (%d KB)", currentFps, jpeg.length / 1024);
+                        statusMessage = String.format("Live View: %.1f FPS (%d KB)", currentFps, jpeg.length / 1024);
                     }
 
                     if (frameListener != null) {
@@ -372,12 +390,11 @@ public class CanonPtpIpEngine {
     }
 
     /**
-     * Fetches Live View JPEG frame handling PTP/IP Data In phase:
-     * OperationRequest (DataPhase = 2), StartData (Type 9), DataPacket (Type 12), EndData (Type 10), OperationResponse (Type 7).
+     * Fetches Live View JPEG frame handling PTP/IP Data In phase.
      */
     private synchronized byte[] fetchLiveViewFrame(int opCode) throws Exception {
         // OperationRequest with DataPhase = 2 (Data In - Camera sends data to Host)
-        sendOperationRequestWithPhase(opCode, 2, 0x00200000); // 2MB Max buffer
+        sendOperationRequestWithPhase(opCode, 2, 0x00100000); // 1MB buffer
 
         ByteArrayOutputStream frameStream = new ByteArrayOutputStream();
 
@@ -442,10 +459,6 @@ public class CanonPtpIpEngine {
 
     /**
      * Drives Canon Lens Focus.
-     * Uses DataPhase = 0 (No Data Phase).
-     * Supports EOS OpCode 0x9155 and PTP OpCode 0x9029.
-     * @param direction 1 = Far / Infinity, 2 = Near / Macro
-     * @param step 1 = Small, 2 = Medium, 3 = Large
      */
     public synchronized boolean driveLensFocus(int direction, int step) {
         if (!isConnected()) return false;
@@ -489,12 +502,11 @@ public class CanonPtpIpEngine {
         if (!isConnected()) return false;
         try {
             // Method 1: Canon EOS RemoteRelease (0x9128)
-            // Param 1 = 1 (Shutter Button Press), Param 2 = 0
             try {
-                sendOperationRequest(0x9128, 1, 0);
+                sendOperationRequest(0x9128, 1, 0); // Shutter Press
                 readOperationResponse();
                 Thread.sleep(150);
-                sendOperationRequest(0x9128, 2, 0); // Shutter Button Release
+                sendOperationRequest(0x9128, 2, 0); // Shutter Release
                 readOperationResponse();
                 Log.i(TAG, "EOS RemoteRelease (0x9128) fired shutter successfully!");
                 return true;
@@ -538,69 +550,85 @@ public class CanonPtpIpEngine {
     }
 
     /**
-     * Sets Canon 32-bit Device Property (OpCode: 0x9014 - SetDevicePropValueEx)
-     * DataPhase = 1 (Data Out - Host sends data to camera).
+     * Sets Canon 32-bit Device Property.
+     * Tries Canon EOS SetDevicePropValueEx (0x9110) first, then Standard PTP SetDevicePropValue (0x1016).
      */
     public synchronized boolean setDeviceProperty32(int propCode, int value) {
         if (cmdOut == null) return false;
+
+        // Method 1: Canon EOS SetDevicePropValueEx (0x9110)
         try {
             int txId = transactionId++;
-
-            byte[] dataPayload = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
-                    .putShort((short) propCode)
-                    .putShort((short) 0x0004) // DataType: UINT32
+            byte[] dataPayload = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN)
+                    .putInt(propCode)
+                    .putInt(4) // 4 bytes data
                     .putInt(value)
                     .array();
 
-            // OperationRequest (DataPhase = 1 -> Data Out)
-            ByteBuffer req = ByteBuffer.allocate(8 + 4 + 2 + 4 + 4).order(ByteOrder.LITTLE_ENDIAN);
-            req.putInt(req.capacity());
-            req.putInt(6); // OperationRequest
-            req.putInt(1); // DataPhase: 1 = Data Out (Host -> Camera)
-            req.putShort((short) 0x9014); // SetDevicePropValueEx
-            req.putInt(txId);
-            req.putInt(propCode);
-
-            cmdOut.write(req.array());
-
-            // StartData (Type 9)
-            ByteBuffer start = ByteBuffer.allocate(8 + 4 + 8).order(ByteOrder.LITTLE_ENDIAN);
-            start.putInt(start.capacity());
-            start.putInt(9); // StartData
-            start.putInt(txId);
-            start.putLong(dataPayload.length);
-            cmdOut.write(start.array());
-
-            // EndData (Type 10)
-            ByteBuffer end = ByteBuffer.allocate(8 + 4 + dataPayload.length).order(ByteOrder.LITTLE_ENDIAN);
-            end.putInt(end.capacity());
-            end.putInt(10); // EndData
-            end.putInt(txId);
-            end.put(dataPayload);
-            cmdOut.write(end.array());
-            cmdOut.flush();
-
+            sendPropPacket(0x9110, txId, propCode, dataPayload);
             int resp = readOperationResponse();
-            return resp == 0x2001; // 0x2001 = OK
+            if (resp == 0x2001) {
+                Log.i(TAG, "EOS SetDevicePropValueEx (0x9110) 0x" + Integer.toHexString(propCode) + "=" + value + " OK");
+                return true;
+            }
         } catch (Exception e) {
-            Log.w(TAG, "SetDeviceProp (0x" + Integer.toHexString(propCode) + ") error: " + e.getMessage());
-            return false;
+            Log.w(TAG, "EOS SetProp 0x9110 error: " + e.getMessage());
         }
+
+        // Method 2: Standard PTP SetDevicePropValue (0x1016)
+        try {
+            int txId = transactionId++;
+            byte[] dataPayload = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN)
+                    .putInt(value)
+                    .array();
+
+            sendPropPacket(0x1016, txId, propCode, dataPayload);
+            int resp = readOperationResponse();
+            if (resp == 0x2001) {
+                Log.i(TAG, "Standard PTP SetDevicePropValue (0x1016) 0x" + Integer.toHexString(propCode) + "=" + value + " OK");
+                return true;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Standard PTP SetProp 0x1016 error: " + e.getMessage());
+        }
+
+        return false;
     }
 
-    /**
-     * Sends PTP/IP OperationRequest with NO DATA PHASE (DataPhase = 0).
-     */
+    private void sendPropPacket(int opCode, int txId, int propCode, byte[] dataPayload) throws Exception {
+        // OperationRequest (DataPhase = 1 -> Data Out)
+        ByteBuffer req = ByteBuffer.allocate(8 + 4 + 2 + 4 + 4).order(ByteOrder.LITTLE_ENDIAN);
+        req.putInt(req.capacity());
+        req.putInt(6); // OperationRequest
+        req.putInt(1); // DataPhase: 1 = Data Out (Host -> Camera)
+        req.putShort((short) opCode);
+        req.putInt(txId);
+        req.putInt(propCode);
+
+        cmdOut.write(req.array());
+
+        // StartData (Type 9)
+        ByteBuffer start = ByteBuffer.allocate(8 + 4 + 8).order(ByteOrder.LITTLE_ENDIAN);
+        start.putInt(start.capacity());
+        start.putInt(9); // StartData
+        start.putInt(txId);
+        start.putLong(dataPayload.length);
+        cmdOut.write(start.array());
+
+        // EndData (Type 10)
+        ByteBuffer end = ByteBuffer.allocate(8 + 4 + dataPayload.length).order(ByteOrder.LITTLE_ENDIAN);
+        end.putInt(end.capacity());
+        end.putInt(10); // EndData
+        end.putInt(txId);
+        end.put(dataPayload);
+        cmdOut.write(end.array());
+        cmdOut.flush();
+    }
+
     private void sendOperationRequest(int opCode, int... params) throws Exception {
         sendOperationRequestWithPhase(opCode, 0, params);
     }
 
-    /**
-     * Sends PTP/IP OperationRequest with specified DataPhaseInfo:
-     * 0 = No Data Phase
-     * 1 = Data Out (Host -> Camera)
-     * 2 = Data In  (Camera -> Host)
-     */
     private void sendOperationRequestWithPhase(int opCode, int dataPhase, int... params) throws Exception {
         int txId = transactionId++;
         int paramCount = params != null ? params.length : 0;
@@ -609,7 +637,7 @@ public class CanonPtpIpEngine {
         ByteBuffer req = ByteBuffer.allocate(totalLen).order(ByteOrder.LITTLE_ENDIAN);
         req.putInt(totalLen);
         req.putInt(6); // OperationRequest
-        req.putInt(dataPhase); // Exact DataPhaseInfo!
+        req.putInt(dataPhase); // Exact DataPhaseInfo: 0 = No Data, 1 = Data Out, 2 = Data In
         req.putShort((short) opCode);
         req.putInt(txId);
         for (int p : params) {

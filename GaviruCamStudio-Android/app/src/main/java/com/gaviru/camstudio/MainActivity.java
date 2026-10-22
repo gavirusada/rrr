@@ -122,9 +122,14 @@ public class MainActivity extends AppCompatActivity {
                 if (dhcp != null && dhcp.gateway != 0) {
                     int g = dhcp.gateway;
                     String detected = String.format("%d.%d.%d.%d", (g & 0xFF), (g >> 8 & 0xFF), (g >> 16 & 0xFF), (g >> 24 & 0xFF));
-                    if (!detected.equals("0.0.0.0") && prefs.getString(KEY_CAMERA_IP, "").isEmpty()) {
+                    if (!detected.equals("0.0.0.0") && !detected.equals(cameraIp)) {
                         cameraIp = detected;
+                        prefs.edit().putString(KEY_CAMERA_IP, cameraIp).apply();
                         Log.i(TAG, "Auto-detected Canon Camera Gateway IP: " + cameraIp);
+                        runOnUiThread(() -> {
+                            Toast.makeText(this, "Camera Gateway Detected: " + cameraIp, Toast.LENGTH_SHORT).show();
+                            startLocalServices();
+                        });
                     }
                 }
             }
