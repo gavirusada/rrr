@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Implements ISO 15740 PTP-IP standard with exact DataPhaseInfo and Canon EOS extensions:
  * - Persistent GUID for stable camera pairing
  * - Remote Mode & Event Mode activation (0x9114, 0x9115)
- * - Live View activation: Canon EOS SetDevicePropValueEx (0x9110) & PTP (0x1016) for EvfOutputDevice (0xD102=3)
+ * - Live View activation: Canon EOS StartLiveView (0x9151) & SetDevicePropValueEx (0x9110) for EvfOutputDevice (0xD102=3)
  *   Flips the mirror up and opens the shutter!
  * - Live View frame streaming (0x9153 / 0x9027)
  * - Remote Lens Focus Drive (0x9155 / 0x9029)
@@ -170,9 +170,6 @@ public class CanonPtpIpEngine {
         evtSocket = null;
     }
 
-    /**
-     * Gets or creates a persistent GUID for Canon camera pairing.
-     */
     private byte[] getPersistentGuid() {
         SharedPreferences sp = context.getSharedPreferences("CanonPtpPrefs", Context.MODE_PRIVATE);
         String savedGuid = sp.getString("guid_str", null);
@@ -289,18 +286,10 @@ public class CanonPtpIpEngine {
 
         // 4. Open Session (OpCode: 0x1002, SessionID: 1, DataPhase: 0 - No Data Phase)
         sendOperationRequest(0x1002, 1);
-        readOperationResponse();
-        Log.i(TAG, "PTP Session Opened!");
+        int openResp = readOperationResponse();
+        Log.i(TAG, "PTP Session Opened! Code=0x" + Integer.toHexString(openResp));
 
         // 5. Canon EOS Handshake: SetRemoteMode (0x9114) & SetEventMode (0x9115)
-        try {
-            sendOperationRequest(0x9114, 1);
-            readOperationResponse();
-            Log.i(TAG, "Canon EOS SetRemoteMode(1) OK");
-        } catch (Exception e) {
-            Log.w(TAG, "SetRemoteMode error: " + e.getMessage());
-        }
-
         try {
             sendOperationRequest(0x9115, 1);
             readOperationResponse();
@@ -309,30 +298,44 @@ public class CanonPtpIpEngine {
             Log.w(TAG, "SetEventMode error: " + e.getMessage());
         }
 
-        // 6. Start Live View: Set EvfOutputDevice (0xD102) -> 3 (PC + LCD)
-        // This is the command that flips up the mirror and opens the shutter!
+        try {
+            sendOperationRequest(0x9114, 1);
+            readOperationResponse();
+            Log.i(TAG, "Canon EOS SetRemoteMode(1) OK");
+        } catch (Exception e) {
+            Log.w(TAG, "SetRemoteMode error: " + e.getMessage());
+        }
+
+        // 6. Start Live View (Opens Shutter & Raises Mirror!)
+        // Method A: Dedicated Canon EOS OpCode 0x9151 (StartLiveView)
         statusMessage = "Opening Shutter / Raising Mirror...";
+        try {
+            sendOperationRequest(0x9151);
+            int liveResp = readOperationResponse();
+            Log.i(TAG, "EOS StartLiveView (0x9151) response: 0x" + Integer.toHexString(liveResp));
+            if (liveResp == 0x2001) {
+                mirrorUp = true;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "OpCode 0x9151 not supported: " + e.getMessage());
+        }
+
+        // Method B: Set EvfOutputDevice (0xD102) -> 3 (PC + LCD) / 2 (LCD) / 1 (PC)
         int[] evfOutputModes = {3, 2, 1, 9, 8};
-        boolean evfSuccess = false;
         for (int m : evfOutputModes) {
             if (setDeviceProperty32(0xD102, m)) {
                 Log.i(TAG, "Canon EvfOutputDevice (0xD102) set to " + m + " (Shutter Opened / Mirror Raised)!");
-                evfSuccess = true;
+                mirrorUp = true;
                 break;
             }
         }
-        if (!evfSuccess) {
-            // Try alternative property 0xD1B0
-            setDeviceProperty32(0xD1B0, 3);
-        }
 
-        // EvfMode (0xD10B) -> 1 (Enable EVF)
+        // Method C: EvfMode (0xD10B) -> 1
         setDeviceProperty32(0xD10B, 1);
 
         isLiveViewActive.set(true);
-        mirrorUp = true;
-        statusMessage = "Canon Live View Streaming!";
-        Log.i(TAG, "Live View Active! Mirror is up, shutter is open. Streaming frames...");
+        statusMessage = "Canon Live View Active!";
+        Log.i(TAG, "Live View Active! Mirror is up, shutter is open. Polling frames...");
 
         // 7. Live View Polling Loop
         int consecutiveErrors = 0;
@@ -355,13 +358,14 @@ public class CanonPtpIpEngine {
                     totalFramesReceived++;
                     frameCount++;
                     consecutiveErrors = 0;
+                    mirrorUp = true;
 
                     long now = System.currentTimeMillis();
                     if (now - lastFpsCalcTime >= 1000) {
                         currentFps = (frameCount * 1000f) / (now - lastFpsCalcTime);
                         frameCount = 0;
                         lastFpsCalcTime = now;
-                        statusMessage = String.format("Live View: %.1f FPS (%d KB)", currentFps, jpeg.length / 1024);
+                        statusMessage = String.format("Live: %.1f FPS (%d KB)", currentFps, jpeg.length / 1024);
                     }
 
                     if (frameListener != null) {
@@ -370,7 +374,8 @@ public class CanonPtpIpEngine {
                 } else {
                     consecutiveErrors++;
                     if (consecutiveErrors > 15) {
-                        // Re-trigger live view property if interrupted
+                        // Re-trigger live view commands
+                        try { sendOperationRequest(0x9151); readOperationResponse(); } catch (Exception ignored) {}
                         setDeviceProperty32(0xD102, 3);
                         setDeviceProperty32(0xD10B, 1);
                         consecutiveErrors = 0;
@@ -551,7 +556,7 @@ public class CanonPtpIpEngine {
 
     /**
      * Sets Canon 32-bit Device Property.
-     * Tries Canon EOS SetDevicePropValueEx (0x9110) first, then Standard PTP SetDevicePropValue (0x1016).
+     * Tries Canon EOS SetDevicePropValueEx (0x9110) and Standard PTP SetDevicePropValue (0x1016).
      */
     public synchronized boolean setDeviceProperty32(int propCode, int value) {
         if (cmdOut == null) return false;
@@ -607,15 +612,7 @@ public class CanonPtpIpEngine {
 
         cmdOut.write(req.array());
 
-        // StartData (Type 9)
-        ByteBuffer start = ByteBuffer.allocate(8 + 4 + 8).order(ByteOrder.LITTLE_ENDIAN);
-        start.putInt(start.capacity());
-        start.putInt(9); // StartData
-        start.putInt(txId);
-        start.putLong(dataPayload.length);
-        cmdOut.write(start.array());
-
-        // EndData (Type 10)
+        // EndData (Type 10) directly for single-packet payload
         ByteBuffer end = ByteBuffer.allocate(8 + 4 + dataPayload.length).order(ByteOrder.LITTLE_ENDIAN);
         end.putInt(end.capacity());
         end.putInt(10); // EndData
