@@ -432,7 +432,7 @@ public class CanonPtpIpEngine {
         byte[] buf = new byte[length];
         int offset = 0;
         while (offset < length) {
-            int read = in.read(buf, offset, length - 1);
+            int read = in.read(buf, offset, length - offset);
             if (read == -1) throw new Exception("Unexpected EOF while reading socket");
             offset += read;
         }
