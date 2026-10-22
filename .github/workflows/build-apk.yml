@@ -24,6 +24,16 @@ jobs:
       with:
         gradle-version: '8.5'
 
+    - name: Prepare Android SDK & Licenses
+      run: |
+        echo "sdk.dir=$ANDROID_HOME" > GaviruCamStudio-Android/local.properties
+        mkdir -p "$ANDROID_HOME/licenses" || true
+        echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_HOME/licenses/android-sdk-license"
+        echo "84831b9409646a332e30571b1473a623a16e64f5" >> "$ANDROID_HOME/licenses/android-sdk-license"
+        echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> "$ANDROID_HOME/licenses/android-sdk-license"
+        echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
     - name: Build APK with Gradle
       run: |
         cd GaviruCamStudio-Android
@@ -32,14 +42,14 @@ jobs:
     - name: Copy & Rename APK
       run: |
         mkdir -p build-output
-        cp GaviruCamStudio-Android/app/build/outputs/apk/debug/*.apk build-output/GaviruCamStudio-v1.0.0.apk
-        ls -la build-output/
+        find GaviruCamStudio-Android/app/build/outputs/apk/ -name "*.apk" -exec cp {} build-output/GaviruCamStudio-v1.0.0.apk \;
+        ls -lh build-output/
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: GaviruCamStudio-APK
-        path: build-output/*.apk
+        path: build-output/GaviruCamStudio-v1.0.0.apk
         retention-days: 30
 
     - name: Create GitHub Release with APK
@@ -56,7 +66,7 @@ jobs:
           - **No PC Required**: Operates completely stand-alone on Android.
         draft: false
         prerelease: false
-        files: build-output/*.apk
+        files: build-output/GaviruCamStudio-v1.0.0.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       continue-on-error: true
