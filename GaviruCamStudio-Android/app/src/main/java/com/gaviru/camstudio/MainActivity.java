@@ -66,6 +66,7 @@ public class MainActivity extends AppCompatActivity {
     private CanonPtpIpEngine canonEngine;
     private LocalHttpServer localServer;
     private ConnectivityManager.NetworkCallback wifiNetworkCallback;
+    private Network currentWifiNetwork = null;
 
     private boolean isBroadcastingToObs = false;
 
@@ -91,11 +92,31 @@ public class MainActivity extends AppCompatActivity {
         setupVdoNinjaBackgroundBroadcaster();
         checkAndRequestPermissions();
 
-        // 1. Listen for Camera Wi-Fi Network & Auto Detect Gateway IP
+        // 1. Proactively detect Wi-Fi network and register callback
+        detectAndBindWifi();
         registerWifiNetworkCallback();
 
         // 2. Start Canon Wi-Fi PTP/IP Engine & Local Server
         startLocalServices();
+    }
+
+    private void detectAndBindWifi() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                Network[] networks = cm.getAllNetworks();
+                for (Network n : networks) {
+                    NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+                    if (nc != null && nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                        currentWifiNetwork = n;
+                        Log.i(TAG, "Found active Wi-Fi interface: " + n);
+                        break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error finding active Wi-Fi: " + e.getMessage());
+        }
     }
 
     private void registerWifiNetworkCallback() {
@@ -109,6 +130,7 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onAvailable(@NonNull Network network) {
                     Log.i(TAG, "Wi-Fi Network active: " + network);
+                    currentWifiNetwork = network;
                     if (canonEngine != null) {
                         canonEngine.setWifiNetwork(network);
                     }
@@ -118,6 +140,9 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onLost(@NonNull Network network) {
                     Log.w(TAG, "Wi-Fi Network lost");
+                    if (currentWifiNetwork == network) {
+                        currentWifiNetwork = null;
+                    }
                     if (canonEngine != null) {
                         canonEngine.setWifiNetwork(null);
                     }
@@ -161,7 +186,30 @@ public class MainActivity extends AppCompatActivity {
                 localServer.stop();
             }
 
+            detectAndBindWifi();
+
             canonEngine = new CanonPtpIpEngine(this, cameraIp, 15740);
+            if (currentWifiNetwork != null) {
+                canonEngine.setWifiNetwork(currentWifiNetwork);
+            }
+
+            // Real-time diagnostic logging directly on phone HUD
+            canonEngine.setLogListener(line -> runOnUiThread(() -> {
+                txtDiagInfo.setText(line);
+                if (line.contains("Live View Active") || line.contains("LIVE") || line.contains("Streaming")) {
+                    txtStatusBadge.setText("🟢 LIVE");
+                    txtStatusBadge.setBackgroundColor(0xFF102219);
+                    txtStatusBadge.setTextColor(0xFF6EE7B7);
+                } else if (line.contains("Error") || line.contains("❌")) {
+                    txtStatusBadge.setText("🔴 Disconnected");
+                    txtStatusBadge.setBackgroundColor(0xFF251010);
+                    txtStatusBadge.setTextColor(0xFFFCA5A5);
+                } else if (line.contains("Connecting") || line.contains("Handshaking") || line.contains("Opening")) {
+                    txtStatusBadge.setText("🟡 Connecting");
+                    txtStatusBadge.setBackgroundColor(0xFF2B2005);
+                    txtStatusBadge.setTextColor(0xFFFDE68A);
+                }
+            }));
 
             // Set frame listener for 0-latency native rendering!
             canonEngine.setFrameListener(jpeg -> {
@@ -175,7 +223,8 @@ public class MainActivity extends AppCompatActivity {
                             txtStatusBadge.setBackgroundColor(0xFF102219);
                             txtStatusBadge.setTextColor(0xFF6EE7B7);
                             txtDiagInfo.setText("IP: " + canonEngine.getCameraIp() + ":" + canonEngine.getCameraPort() +
-                                    " | Shutter: OPEN | Frames: " + canonEngine.getTotalFramesReceived());
+                                    " | Shutter: OPEN | Frames: " + canonEngine.getTotalFramesReceived() +
+                                    String.format(" (%.1f FPS)", canonEngine.getCurrentFps()));
                         });
                     }
                 } catch (Exception ignored) {}
@@ -198,11 +247,17 @@ public class MainActivity extends AppCompatActivity {
         Button btnShutter = findViewById(R.id.btnShutter);
         Button btnStreamObs = findViewById(R.id.btnStreamObs);
         Button btnSettings = findViewById(R.id.btnSettings);
+        Button btnGuide = findViewById(R.id.btnGuide);
 
         Button btnFar3 = findViewById(R.id.btnFar3);
         Button btnFar1 = findViewById(R.id.btnFar1);
         Button btnNear1 = findViewById(R.id.btnNear1);
         Button btnNear3 = findViewById(R.id.btnNear3);
+
+        // Guide Button
+        if (btnGuide != null) {
+            btnGuide.setOnClickListener(v -> showGuideDialog());
+        }
 
         // 1. Shutter Button
         btnShutter.setOnClickListener(v -> {
@@ -230,7 +285,10 @@ public class MainActivity extends AppCompatActivity {
                 playCanonBeep();
                 new Thread(() -> {
                     if (canonEngine != null) {
-                        canonEngine.driveLensFocus(2, 1);
+                        boolean afOk = canonEngine.triggerAutoFocus();
+                        if (!afOk) {
+                            canonEngine.driveLensFocus(2, 1);
+                        }
                     }
                 }).start();
             }
@@ -242,6 +300,20 @@ public class MainActivity extends AppCompatActivity {
 
         // 5. Settings Button
         btnSettings.setOnClickListener(v -> showSettingsDialog());
+    }
+
+    private void showGuideDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("📷 Canon Camera Wi-Fi Setup Guide")
+                .setMessage("Canon කැමරාව සාර්ථකව සම්බන්ධ කර ගැනීමට:\n\n" +
+                        "1. කැමරාවේ Wi-Fi Menu වෙත යන්න.\n\n" +
+                        "2. ⚠️ ඉතා වැදගත්: 'Connect to smartphone' (📱) තෝරනවා වෙනුවට 'Remote control (EOS Utility)' (💻 පරිගණක අයිකනය) තෝරන්න!\n" +
+                        "(එවිට කැමරාව සම්පූර්ණ Live View එක සහ Shutter එක කිසිදු බාධාවකින් තොරව Phone එකට ලබා දෙයි!)\n\n" +
+                        "3. Camera Mode Dial එක 'M' (Manual) හෝ 'P' (Program) වෙත දමන්න.\n\n" +
+                        "4. Lens එකේ AF/MF ස්විචය 'AF' මත ඇති බව තහවුරු කරන්න.\n\n" +
+                        "5. Phone එකේ Wi-Fi වලින් කැමරාවට connect වී App එක open කරන්න.")
+                .setPositiveButton("තේරුණා (OK)", null)
+                .show();
     }
 
     private void showFocusBox(float x, float y) {
