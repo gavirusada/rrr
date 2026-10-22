@@ -1,5 +1,7 @@
 package com.gaviru.camstudio;
 
+import android.net.Network;
+import android.os.Build;
 import android.util.Log;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -13,16 +15,19 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Native Canon PTP/IP Wi-Fi Client for Android
- * Connects directly to Canon EOS DSLR/Mirrorless cameras over Wi-Fi (IP: 192.168.1.1:15740).
- * Handles EVF Live View streaming and real-time Lens Focus & Camera Controls.
+ * Canon PTP/IP Wi-Fi Engine for Android
+ * Connects directly to Canon EOS DSLR and Mirrorless cameras over Wi-Fi (192.168.1.1:15740).
+ * Handles PTP/IP handshakes, EOS remote live view streaming (OpCode 0x9153 / 0x9027),
+ * and lens focus drive (OpCode 0x9155 / 0x9029).
  */
 public class CanonPtpIpEngine {
 
-    private static final String TAG = "CanonPtpIp";
+    private static final String TAG = "CanonPtpIpEngine";
 
     private String cameraIp = "192.168.1.1";
     private int cameraPort = 15740;
+
+    private Network wifiNetwork = null;
 
     private Socket cmdSocket;
     private Socket evtSocket;
@@ -39,7 +44,14 @@ public class CanonPtpIpEngine {
 
     private byte[] latestJpegFrame = null;
     private long lastFrameTime = 0;
+    private int frameCount = 0;
+    private float currentFps = 0f;
+    private long lastFpsCalcTime = 0;
+
+    private String statusMessage = "Disconnected";
     private String lastError = null;
+
+    private int activeLiveViewOpCode = 0x9153; // Default to EOS GetLiveViewPicture
 
     public interface FrameListener {
         void onNewFrame(byte[] jpegBytes);
@@ -56,20 +68,37 @@ public class CanonPtpIpEngine {
         }
     }
 
+    public void setWifiNetwork(Network network) {
+        this.wifiNetwork = network;
+        Log.i(TAG, "Assigned Wi-Fi Network: " + network);
+    }
+
     public void setFrameListener(FrameListener listener) {
         this.frameListener = listener;
     }
 
     public synchronized boolean isConnected() {
-        return isRunning.get() && cmdSocket != null && cmdSocket.isConnected();
+        return isRunning.get() && cmdSocket != null && cmdSocket.isConnected() && !cmdSocket.isClosed();
+    }
+
+    public boolean isLiveViewStreaming() {
+        return isLiveViewActive.get() && (System.currentTimeMillis() - lastFrameTime < 3000);
     }
 
     public byte[] getLatestJpegFrame() {
         return latestJpegFrame;
     }
 
+    public String getStatusMessage() {
+        return statusMessage;
+    }
+
     public String getLastError() {
         return lastError;
+    }
+
+    public float getCurrentFps() {
+        return currentFps;
     }
 
     public void start() {
@@ -79,17 +108,19 @@ public class CanonPtpIpEngine {
         new Thread(() -> {
             while (isRunning.get()) {
                 try {
+                    statusMessage = "Connecting to Canon Wi-Fi (" + cameraIp + ":" + cameraPort + ")...";
                     connectAndStream();
                 } catch (Exception e) {
                     lastError = e.getMessage();
-                    Log.e(TAG, "Connection error: " + e.getMessage(), e);
+                    statusMessage = "Error: " + e.getMessage();
+                    Log.e(TAG, "Connection cycle error: " + e.getMessage(), e);
                 }
 
                 closeSockets();
 
                 if (isRunning.get()) {
                     try {
-                        Thread.sleep(2500); // Retry delay
+                        Thread.sleep(3000); // Retry interval
                     } catch (InterruptedException ignored) {}
                 }
             }
@@ -99,6 +130,7 @@ public class CanonPtpIpEngine {
     public void stop() {
         isRunning.set(false);
         closeSockets();
+        statusMessage = "Stopped";
     }
 
     private void closeSockets() {
@@ -110,19 +142,29 @@ public class CanonPtpIpEngine {
     }
 
     private void connectAndStream() throws Exception {
-        Log.i(TAG, "Connecting to Canon Camera at " + cameraIp + ":" + cameraPort + "...");
+        Log.i(TAG, "Attempting connection to Canon Camera at " + cameraIp + ":" + cameraPort + "...");
 
         // 1. Connect Command Socket
         cmdSocket = new Socket();
         cmdSocket.setTcpNoDelay(true);
-        cmdSocket.connect(new InetSocketAddress(cameraIp, cameraPort), 5000);
+        if (wifiNetwork != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                wifiNetwork.bindSocket(cmdSocket);
+                Log.i(TAG, "cmdSocket bound to Wi-Fi network interface");
+            } catch (Exception e) {
+                Log.w(TAG, "Could not bind cmdSocket to Wi-Fi: " + e.getMessage());
+            }
+        }
+        cmdSocket.connect(new InetSocketAddress(cameraIp, cameraPort), 7000);
         cmdOut = cmdSocket.getOutputStream();
         cmdIn = cmdSocket.getInputStream();
+
+        statusMessage = "Sending PTP/IP Init...";
 
         // 2. InitCommandRequest
         byte[] guid = new byte[16];
         ByteBuffer.wrap(guid).putLong(UUID.randomUUID().getMostSignificantBits()).putLong(UUID.randomUUID().getLeastSignificantBits());
-        byte[] clientNameBytes = "Gaviru-Cam-Android\0".getBytes(StandardCharsets.UTF_16LE);
+        byte[] clientNameBytes = "Gaviru-Cam-Pro\0".getBytes(StandardCharsets.UTF_16LE);
 
         ByteBuffer initCmd = ByteBuffer.allocate(8 + 16 + clientNameBytes.length + 4).order(ByteOrder.LITTLE_ENDIAN);
         initCmd.putInt(initCmd.capacity());
@@ -144,12 +186,20 @@ public class CanonPtpIpEngine {
         byte[] ackBody = readExact(cmdIn, ackLen - 8);
         ByteBuffer ackBodyBuf = ByteBuffer.wrap(ackBody).order(ByteOrder.LITTLE_ENDIAN);
         connectionNumber = ackBodyBuf.getInt();
-        Log.i(TAG, "PTP/IP Command Connected! ConnectionNumber: " + connectionNumber);
+        Log.i(TAG, "InitCommand OK! ConnectionNumber: " + connectionNumber);
 
         // 3. Connect Event Socket
         evtSocket = new Socket();
         evtSocket.setTcpNoDelay(true);
-        evtSocket.connect(new InetSocketAddress(cameraIp, cameraPort), 5000);
+        if (wifiNetwork != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                wifiNetwork.bindSocket(evtSocket);
+                Log.i(TAG, "evtSocket bound to Wi-Fi network interface");
+            } catch (Exception e) {
+                Log.w(TAG, "Could not bind evtSocket to Wi-Fi: " + e.getMessage());
+            }
+        }
+        evtSocket.connect(new InetSocketAddress(cameraIp, cameraPort), 7000);
         evtOut = evtSocket.getOutputStream();
         evtIn = evtSocket.getInputStream();
 
@@ -170,7 +220,7 @@ public class CanonPtpIpEngine {
 
         Log.i(TAG, "PTP/IP Event Socket Connected!");
 
-        // Start Event Drainer Thread to prevent socket backpressure
+        // Start Event Drainer Thread
         new Thread(() -> {
             try {
                 while (isRunning.get() && evtSocket != null && !evtSocket.isClosed()) {
@@ -182,59 +232,120 @@ public class CanonPtpIpEngine {
             } catch (Exception ignored) {}
         }, "Canon-Evt-Drainer").start();
 
+        statusMessage = "Opening PTP Session...";
+
         // 4. Open Session (OpCode: 0x1002)
         sendOperationRequest(0x1002, 1);
         readOperationResponse();
 
-        // 5. Start EVF Live View
-        // Set EvfOutputDevice (0xD102) -> 0x00000008 (Wi-Fi PC) or 0x00000009 (Wi-Fi PC + LCD)
-        setDeviceProperty32(0xD102, 0x00000009);
-        // Set EvfMode (0xD10B) -> 1 (Enable EVF)
+        // 5. Canon EOS Specific Handshakes
+        // SetRemoteMode (OpCode: 0x9114, Param: 1)
+        try {
+            sendOperationRequest(0x9114, 1);
+            readOperationResponse();
+            Log.i(TAG, "Canon SetRemoteMode(1) OK");
+        } catch (Exception e) {
+            Log.w(TAG, "SetRemoteMode not supported or skipped: " + e.getMessage());
+        }
+
+        // SetEventMode (OpCode: 0x9115, Param: 1)
+        try {
+            sendOperationRequest(0x9115, 1);
+            readOperationResponse();
+            Log.i(TAG, "Canon SetEventMode(1) OK");
+        } catch (Exception e) {
+            Log.w(TAG, "SetEventMode not supported or skipped: " + e.getMessage());
+        }
+
+        // Set EvfOutputDevice (Property 0xD102): Try PC+LCD (3), LCD (2), PC (1), 9, 8
+        int[] evfModes = {3, 2, 9, 8, 1};
+        for (int mode : evfModes) {
+            if (setDeviceProperty32(0xD102, mode)) {
+                Log.i(TAG, "Canon EvfOutputDevice set to: " + mode);
+                break;
+            }
+        }
+
+        // Set EvfMode (Property 0xD10B) -> 1 (Enable EVF)
         setDeviceProperty32(0xD10B, 1);
 
         isLiveViewActive.set(true);
-        Log.i(TAG, "Canon EVF Live View Started successfully! Streaming frames...");
+        statusMessage = "Canon EVF Live View Streaming Active!";
+        Log.i(TAG, "EVF Live View Active! Starting frame polling loop...");
 
         // 6. Frame Polling Loop
+        int consecutiveErrors = 0;
+        lastFpsCalcTime = System.currentTimeMillis();
+        frameCount = 0;
+
         while (isRunning.get() && isLiveViewActive.get()) {
             try {
-                byte[] jpeg = fetchViewFinderFrame();
-                if (jpeg != null && jpeg.length > 100) {
+                byte[] jpeg = fetchLiveViewFrame(activeLiveViewOpCode);
+
+                if (jpeg == null && activeLiveViewOpCode == 0x9153) {
+                    // Try alternative OpCode 0x9027 (GetViewFinderData)
+                    activeLiveViewOpCode = 0x9027;
+                    jpeg = fetchLiveViewFrame(activeLiveViewOpCode);
+                }
+
+                if (jpeg != null && jpeg.length > 500) {
                     latestJpegFrame = jpeg;
                     lastFrameTime = System.currentTimeMillis();
+                    frameCount++;
+                    consecutiveErrors = 0;
+
+                    long now = System.currentTimeMillis();
+                    if (now - lastFpsCalcTime >= 1000) {
+                        currentFps = (frameCount * 1000f) / (now - lastFpsCalcTime);
+                        frameCount = 0;
+                        lastFpsCalcTime = now;
+                        statusMessage = String.format("Streaming: %.1f FPS (%d KB)", currentFps, jpeg.length / 1024);
+                    }
+
                     if (frameListener != null) {
                         frameListener.onNewFrame(jpeg);
                     }
+                } else {
+                    consecutiveErrors++;
+                    if (consecutiveErrors > 15) {
+                        // Attempt re-enabling EVF
+                        setDeviceProperty32(0xD102, 3);
+                        setDeviceProperty32(0xD10B, 1);
+                        consecutiveErrors = 0;
+                    }
                 }
+
                 Thread.sleep(25); // ~35 FPS
             } catch (Exception e) {
-                Log.w(TAG, "ViewFinder poll tick error: " + e.getMessage());
+                Log.w(TAG, "Frame fetch tick error: " + e.getMessage());
+                consecutiveErrors++;
+                if (consecutiveErrors > 25) {
+                    throw e; // Force reconnect
+                }
                 Thread.sleep(80);
             }
         }
     }
 
     /**
-     * Sends Canon GetViewFinderData (OpCode: 0x9027) and extracts the JPEG frame
+     * Fetches Live View image data handling PTP/IP StartData (9), DataPacket (12), and EndData (10).
      */
-    private synchronized byte[] fetchViewFinderFrame() throws Exception {
+    private synchronized byte[] fetchLiveViewFrame(int opCode) throws Exception {
         int txId = transactionId++;
 
-        // OperationRequest: GetViewFinderData (0x9027), Param1 = 0x00200000 (Max buffer 2MB)
+        // OperationRequest
         ByteBuffer req = ByteBuffer.allocate(8 + 4 + 2 + 4 + 4).order(ByteOrder.LITTLE_ENDIAN);
         req.putInt(req.capacity());
         req.putInt(6); // OperationRequest
         req.putInt(1); // DataPhase: In
-        req.putShort((short) 0x9027); // OpCode
+        req.putShort((short) opCode);
         req.putInt(txId);
-        req.putInt(0x00200000); // 2MB length request
+        req.putInt(0x00200000); // 2MB Max buffer
 
         cmdOut.write(req.array());
         cmdOut.flush();
 
-        // Read Data / Response Packets
         ByteArrayOutputStream frameStream = new ByteArrayOutputStream();
-        boolean receivedData = false;
 
         while (true) {
             byte[] hdr = readExact(cmdIn, 8);
@@ -243,16 +354,23 @@ public class CanonPtpIpEngine {
             int pktType = hBuf.getInt();
 
             if (pktType == 9) { // StartData
-                readExact(cmdIn, pktLen - 8);
-                receivedData = true;
-            } else if (pktType == 10) { // EndData
+                if (pktLen > 8) readExact(cmdIn, pktLen - 8);
+            } else if (pktType == 12) { // DataPacket (Intermediate chunk)
                 byte[] data = readExact(cmdIn, pktLen - 8);
-                // First 4 bytes are transactionId, remaining is payload
+                // First 4 bytes are transactionId, remainder is payload
                 if (data.length > 4) {
                     frameStream.write(data, 4, data.length - 4);
                 }
-            } else if (pktType == 7) { // OperationResponse
-                byte[] resp = readExact(cmdIn, pktLen - 8);
+            } else if (pktType == 10) { // EndData (Final chunk)
+                byte[] data = readExact(cmdIn, pktLen - 8);
+                if (data.length > 4) {
+                    frameStream.write(data, 4, data.length - 4);
+                }
+                // Read subsequent OperationResponse packet
+                readOperationResponse();
+                break;
+            } else if (pktType == 7) { // OperationResponse (without data)
+                if (pktLen > 8) readExact(cmdIn, pktLen - 8);
                 break;
             } else {
                 if (pktLen > 8) readExact(cmdIn, pktLen - 8);
@@ -260,7 +378,7 @@ public class CanonPtpIpEngine {
         }
 
         byte[] rawBlob = frameStream.toByteArray();
-        if (rawBlob.length < 10) return null;
+        if (rawBlob.length < 50) return null;
 
         // Scan for JPEG SOI (0xFF, 0xD8) and EOI (0xFF, 0xD9)
         int soi = -1;
@@ -290,20 +408,35 @@ public class CanonPtpIpEngine {
     }
 
     /**
-     * Canon Lens Drive Focus (OpCode: 0x9029 - DoAutoFocus / DriveLens)
-     * @param direction 0x0001 = Far / Infinity, 0x0002 = Near / Macro
+     * Drives Canon Lens Focus.
+     * Supports EOS OpCode 0x9155 and PTP OpCode 0x9029.
+     * @param direction 1 = Far / Infinity, 2 = Near / Macro
      * @param step 1 = Small, 2 = Medium, 3 = Large
      */
     public synchronized boolean driveLensFocus(int direction, int step) {
         if (!isConnected()) return false;
         try {
-            int stepParam = Math.max(1, Math.min(3, step));
-            int dirParam = direction == 1 ? 0x0001 : 0x0002;
-            int param = (dirParam << 16) | stepParam;
+            int stepClamped = Math.max(1, Math.min(3, step));
 
+            // Try EOS OpCode 0x9155:
+            // Near: 0x00000001, 0x00000002, 0x00000003
+            // Far:  0x00008001, 0x00008002, 0x00008003
+            int eosParam = direction == 1 ? (0x00008000 | stepClamped) : stepClamped;
+            try {
+                sendOperationRequest(0x9155, eosParam);
+                readOperationResponse();
+                Log.i(TAG, "EOS DriveFocus (0x9155) succeeded! Param=" + Integer.toHexString(eosParam));
+                return true;
+            } catch (Exception e) {
+                Log.w(TAG, "OpCode 0x9155 failed, trying 0x9029: " + e.getMessage());
+            }
+
+            // Fallback OpCode 0x9029 (DriveLens)
+            int dirParam = direction == 1 ? 0x0001 : 0x0002;
+            int param = (dirParam << 16) | stepClamped;
             sendOperationRequest(0x9029, param);
             readOperationResponse();
-            Log.i(TAG, "Focus Drive sent! Direction=" + direction + " Step=" + step);
+            Log.i(TAG, "PTP DriveLens (0x9029) succeeded!");
             return true;
         } catch (Exception e) {
             Log.e(TAG, "Focus Drive error: " + e.getMessage());
@@ -312,15 +445,20 @@ public class CanonPtpIpEngine {
     }
 
     /**
-     * Trigger Shutter Release (OpCode: 0x902F)
+     * Trigger Shutter Release (OpCode: 0x902F or 0x9128)
      */
     public synchronized boolean triggerShutterRelease() {
         if (!isConnected()) return false;
         try {
-            sendOperationRequest(0x902F);
-            readOperationResponse();
-            Log.i(TAG, "Shutter Released!");
-            return true;
+            try {
+                sendOperationRequest(0x902F);
+                readOperationResponse();
+                return true;
+            } catch (Exception e) {
+                sendOperationRequest(0x9128); // EOS remote release
+                readOperationResponse();
+                return true;
+            }
         } catch (Exception e) {
             Log.e(TAG, "Shutter Release error: " + e.getMessage());
             return false;
@@ -387,7 +525,7 @@ public class CanonPtpIpEngine {
             readOperationResponse();
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "SetProp error: " + e.getMessage());
+            Log.w(TAG, "SetProp (0x" + Integer.toHexString(propCode) + ") error: " + e.getMessage());
             return false;
         }
     }
@@ -400,7 +538,7 @@ public class CanonPtpIpEngine {
         ByteBuffer req = ByteBuffer.allocate(totalLen).order(ByteOrder.LITTLE_ENDIAN);
         req.putInt(totalLen);
         req.putInt(6); // OperationRequest
-        req.putInt(1); // DataPhase: No data / In
+        req.putInt(1); // DataPhase: In or No data
         req.putShort((short) opCode);
         req.putInt(txId);
         for (int p : params) {

@@ -3,7 +3,6 @@ package com.gaviru.camstudio;
 import android.content.Context;
 import android.util.Log;
 import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -16,7 +15,8 @@ import org.json.JSONObject;
 
 /**
  * Embedded Lightweight HTTP Server for Android (Port 8787)
- * Serves the Studio Web UI, MJPEG Live Stream (/stream), and Remote Control API (/api/command).
+ * Serves the Studio Web UI, MJPEG Live Stream (/stream), Snapshot (/snapshot.jpg),
+ * and Remote Focus/Lens Control API (/api/command).
  */
 public class LocalHttpServer {
 
@@ -26,10 +26,17 @@ public class LocalHttpServer {
     private final CanonPtpIpEngine canonEngine;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private ServerSocket serverSocket;
+    private String roomName = "gaviru-cam-pro";
 
     public LocalHttpServer(Context context, CanonPtpIpEngine canonEngine) {
         this.context = context;
         this.canonEngine = canonEngine;
+    }
+
+    public void setRoomName(String room) {
+        if (room != null && !room.trim().isEmpty()) {
+            this.roomName = room.trim();
+        }
     }
 
     public void start() {
@@ -86,12 +93,12 @@ public class LocalHttpServer {
             if (path.equals("/") || path.startsWith("/control")) {
                 serveControlPage(out);
             } else if (path.startsWith("/stream") || path.startsWith("/live.mjpg")) {
-                client.setSoTimeout(0); // Infinite timeout for video streaming
+                client.setSoTimeout(0); // Infinite timeout for streaming
                 serveMjpegStream(out);
             } else if (path.startsWith("/snapshot.jpg")) {
                 serveSnapshot(out);
-            } else if (path.startsWith("/api/state")) {
-                serveApiState(out);
+            } else if (path.startsWith("/api/status")) {
+                serveApiStatus(out);
             } else if (path.startsWith("/api/command") && method.equalsIgnoreCase("POST")) {
                 handleApiCommand(reader, contentLength, out);
             } else {
@@ -126,6 +133,7 @@ public class LocalHttpServer {
         String initHeaders = "HTTP/1.1 200 OK\r\n" +
                 "Content-Type: multipart/x-mixed-replace; boundary=" + boundary + "\r\n" +
                 "Cache-Control: no-cache, no-store, must-revalidate\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
                 "Connection: keep-alive\r\n\r\n";
 
         out.write(initHeaders.getBytes(StandardCharsets.UTF_8));
@@ -153,34 +161,33 @@ public class LocalHttpServer {
     private void serveSnapshot(OutputStream out) throws Exception {
         byte[] frame = canonEngine.getLatestJpegFrame();
         if (frame == null) {
-            out.write("HTTP/1.1 503 Service Unavailable\r\n\r\nNo Frame".getBytes(StandardCharsets.UTF_8));
+            out.write("HTTP/1.1 503 Service Unavailable\r\nAccess-Control-Allow-Origin: *\r\n\r\nNo Frame".getBytes(StandardCharsets.UTF_8));
             return;
         }
 
         String headers = "HTTP/1.1 200 OK\r\n" +
                 "Content-Type: image/jpeg\r\n" +
+                "Cache-Control: no-cache, no-store, must-revalidate\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
                 "Content-Length: " + frame.length + "\r\n\r\n";
         out.write(headers.getBytes(StandardCharsets.UTF_8));
         out.write(frame);
         out.flush();
     }
 
-    private void serveApiState(OutputStream out) throws Exception {
-        JSONObject state = new JSONObject();
-        state.put("ok", true);
-        state.put("connected", canonEngine.isConnected());
+    private void serveApiStatus(OutputStream out) throws Exception {
+        JSONObject status = new JSONObject();
+        status.put("ok", true);
+        status.put("connected", canonEngine.isConnected());
+        status.put("streaming", canonEngine.isLiveViewStreaming());
+        status.put("fps", canonEngine.getCurrentFps());
+        status.put("statusMessage", canonEngine.getStatusMessage());
+        status.put("roomName", roomName);
 
-        JSONObject cam = new JSONObject();
-        cam.put("cameraName", "Canon EOS DSLR (Wi-Fi)");
-        cam.put("iso", 100);
-        cam.put("shutterSpeed", "1/125");
-        cam.put("aperture", "f/4.0");
-        cam.put("evfActive", true);
-        state.put("camera", cam);
-
-        byte[] bytes = state.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = status.toString().getBytes(StandardCharsets.UTF_8);
         String headers = "HTTP/1.1 200 OK\r\n" +
                 "Content-Type: application/json\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
                 "Content-Length: " + bytes.length + "\r\n\r\n";
         out.write(headers.getBytes(StandardCharsets.UTF_8));
         out.write(bytes);
@@ -242,6 +249,7 @@ public class LocalHttpServer {
 
         String headers = "HTTP/1.1 200 OK\r\n" +
                 "Content-Type: application/json\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
                 "Content-Length: " + bytes.length + "\r\n\r\n";
         out.write(headers.getBytes(StandardCharsets.UTF_8));
         out.write(bytes);
@@ -258,17 +266,18 @@ public class LocalHttpServer {
                 "  <style>\n" +
                 "    :root { color-scheme: dark; --bg:#080a0f; --card:#111520; --border:#232a3d; --red:#ef4444; --gold:#f59e0b; --cyan:#06b6d4; --green:#10b981; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif; }\n" +
                 "    * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }\n" +
-                "    body { background:var(--bg); color:#f8fafc; min-height:100vh; display:flex; flex-direction:column; padding-bottom:20px; }\n" +
+                "    body { background:var(--bg); color:#f8fafc; min-height:100vh; display:flex; flex-direction:column; padding-bottom:30px; }\n" +
                 "    header { background:#11151e; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:50; }\n" +
-                "    .brand { font-size:16px; font-weight:800; background:linear-gradient(90deg,#fff,#fbbf24); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }\n" +
-                "    .badge { font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; background:#102219; color:#6ee7b7; border:1px solid #10b981; }\n" +
+                "    .brand { font-size:15px; font-weight:800; background:linear-gradient(90deg,#fff,#fbbf24); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }\n" +
+                "    .badge { font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; background:#102219; color:#6ee7b7; border:1px solid #10b981; transition:0.2s; }\n" +
+                "    .badge.disconnected { background:#251010; color:#fca5a5; border-color:#ef4444; }\n" +
                 "    .viewport-box { position:relative; width:100%; aspect-ratio:3/2; background:#000; overflow:hidden; display:flex; align-items:center; justify-content:center; border-bottom:1px solid var(--border); }\n" +
                 "    canvas { width:100%; height:100%; object-fit:contain; display:block; cursor:crosshair; }\n" +
                 "    .af-box { position:absolute; width:64px; height:64px; border:2px solid #ef4444; border-radius:8px; pointer-events:none; transform:translate(-50%,-50%); transition:all 0.15s ease; opacity:0; box-shadow:0 0 14px rgba(239,68,68,0.7); }\n" +
                 "    .af-box.active { opacity:1; }\n" +
                 "    .af-box.locked { border-color:#10b981; box-shadow:0 0 14px rgba(16,185,129,0.8); }\n" +
-                "    .controls { padding:14px; display:flex; flex-direction:column; gap:12px; }\n" +
-                "    .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:10px; }\n" +
+                "    .controls { padding:12px; display:flex; flex-direction:column; gap:10px; }\n" +
+                "    .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:8px; }\n" +
                 "    .btn-row { display:flex; gap:8px; }\n" +
                 "    button { font:inherit; font-weight:700; font-size:12.5px; border-radius:8px; border:1px solid var(--border); background:#171c2b; color:#fff; padding:10px 12px; cursor:pointer; transition:0.15s; flex:1; display:flex; align-items:center; justify-content:center; gap:6px; }\n" +
                 "    button:active { transform:scale(0.97); }\n" +
@@ -282,26 +291,32 @@ public class LocalHttpServer {
                 "<body>\n" +
                 "  <header>\n" +
                 "    <div class=\"brand\">🎥 Gaviru Cam Pro Mobile</div>\n" +
-                "    <div id=\"wifiBadge\" class=\"badge\">📡 Wi-Fi: CONNECTED</div>\n" +
+                "    <div id=\"statusBadge\" class=\"badge disconnected\">Connecting...</div>\n" +
                 "  </header>\n" +
                 "\n" +
                 "  <div class=\"viewport-box\" onclick=\"onCanvasTap(event)\">\n" +
-                "    <canvas id=\"monitorCanvas\" width=\"1280\" height=\"854\"></canvas>\n" +
+                "    <canvas id=\"monitorCanvas\" width=\"1280\" height=\"720\"></canvas>\n" +
                 "    <div id=\"afBox\" class=\"af-box\"></div>\n" +
-                "    <img id=\"rawStreamImg\" src=\"/stream\" style=\"display:none;\" crossorigin=\"anonymous\">\n" +
+                "    <div id=\"noSignalBanner\" style=\"position:absolute; color:#94a3b8; font-size:12px; text-align:center; padding:12px;\">\n" +
+                "      📷 Waiting for Canon Live View...<br>\n" +
+                "      <span style=\"font-size:11px; color:#64748b;\">Turn camera Mode Dial to <strong>M</strong> or <strong>P</strong></span>\n" +
+                "    </div>\n" +
                 "  </div>\n" +
                 "\n" +
                 "  <div class=\"controls\">\n" +
-                "    <!-- VDO.Ninja 1-Click Broadcast Button -->\n" +
-                "    <div class=\"btn-row\">\n" +
-                "      <button id=\"btnVdoBroadcast\" class=\"primary\" style=\"padding:14px; font-size:14px;\" onclick=\"toggleVdoBroadcast()\">\n" +
-                "        🚀 Start VDO.Ninja 4K Broadcast to OBS\n" +
-                "      </button>\n" +
-                "    </div>\n" +
-                "    <div id=\"vdoStatusBox\" style=\"display:none; background:#120c15; border:1px solid #ef4444; border-radius:8px; padding:10px; font-size:11.5px; color:#fca5a5;\">\n" +
-                "      📡 <strong>VDO.Ninja Live Streaming Active!</strong> OBS Studio එකට මෙම Link එක ලබා දෙන්න:<br>\n" +
-                "      <code id=\"obsLinkCode\" style=\"color:#fde68a; font-family:monospace; word-break:break-all;\">https://vdo.ninja/?view=gaviru-cam-pro&cleanoutput</code>\n" +
-                "      <button class=\"gold\" style=\"margin-top:6px; padding:6px; font-size:11px;\" onclick=\"copyObsLink()\">📋 Copy OBS Link</button>\n" +
+                "    <!-- VDO.Ninja 4K Live Broadcast to OBS -->\n" +
+                "    <div class=\"card\" style=\"border-color:#ef4444; background:#170f14;\">\n" +
+                "      <div style=\"font-size:13px; font-weight:800; color:#fca5a5;\">🚀 Stream Canon Camera to OBS Studio (VDO.Ninja)</div>\n" +
+                "      <p style=\"font-size:11px; color:#cbd5e1;\">Phone Camera එක නොව, Connect කර ඇති Canon Camera එකේ Live Feed එක OBS Studio එකට 4K/1080p High Quality වලින් stream වේ.</p>\n" +
+                "      <div class=\"btn-row\">\n" +
+                "        <button id=\"btnVdoBroadcast\" class=\"primary\" style=\"padding:12px;\" onclick=\"startVdoBroadcast()\">\n" +
+                "          📡 Launch Canon ➔ OBS Broadcaster\n" +
+                "        </button>\n" +
+                "        <button class=\"gold\" style=\"max-width:120px;\" onclick=\"copyObsLink()\">📋 Copy OBS Link</button>\n" +
+                "      </div>\n" +
+                "      <div id=\"obsUrlDisplay\" style=\"font-size:11px; color:#fde68a; font-family:monospace; background:#000; padding:6px; border-radius:6px; word-break:break-all;\">\n" +
+                "        OBS Link: https://vdo.ninja/?view=" + roomName + "&cleanoutput\n" +
+                "      </div>\n" +
                 "    </div>\n" +
                 "\n" +
                 "    <!-- Focus Controls -->\n" +
@@ -339,23 +354,58 @@ public class LocalHttpServer {
                 "  <script>\n" +
                 "    const canvas = document.getElementById('monitorCanvas');\n" +
                 "    const ctx = canvas.getContext('2d');\n" +
-                "    const rawImg = document.getElementById('rawStreamImg');\n" +
                 "    const afBox = document.getElementById('afBox');\n" +
+                "    const statusBadge = document.getElementById('statusBadge');\n" +
+                "    const noSignalBanner = document.getElementById('noSignalBanner');\n" +
                 "    let audioCtx = null;\n" +
-                "    let isBroadcasting = false;\n" +
-                "    let broadcastStream = null;\n" +
-                "    let roomName = 'gaviru-cam-pro';\n" +
+                "    let roomName = '" + roomName + "';\n" +
                 "\n" +
-                "    // Render MJPEG onto Canvas at 30 FPS\n" +
-                "    function renderLoop() {\n" +
-                "      if (rawImg.complete && rawImg.naturalWidth > 0) {\n" +
-                "        ctx.drawImage(rawImg, 0, 0, canvas.width, canvas.height);\n" +
+                "    // Fetch continuous MJPEG or Snapshot into Canvas\n" +
+                "    const liveImg = new Image();\n" +
+                "    liveImg.crossOrigin = 'anonymous';\n" +
+                "    let isPolling = false;\n" +
+                "\n" +
+                "    function pollNextFrame() {\n" +
+                "      if (!isPolling) {\n" +
+                "        isPolling = true;\n" +
+                "        liveImg.src = '/snapshot.jpg?t=' + Date.now();\n" +
                 "      }\n" +
-                "      requestAnimationFrame(renderLoop);\n" +
                 "    }\n" +
-                "    requestAnimationFrame(renderLoop);\n" +
+                "    liveImg.onload = function() {\n" +
+                "      if (liveImg.naturalWidth > 0) {\n" +
+                "        canvas.width = liveImg.naturalWidth;\n" +
+                "        canvas.height = liveImg.naturalHeight;\n" +
+                "        ctx.drawImage(liveImg, 0, 0);\n" +
+                "        noSignalBanner.style.display = 'none';\n" +
+                "      }\n" +
+                "      isPolling = false;\n" +
+                "      setTimeout(pollNextFrame, 20);\n" +
+                "    };\n" +
+                "    liveImg.onerror = function() {\n" +
+                "      isPolling = false;\n" +
+                "      setTimeout(pollNextFrame, 150);\n" +
+                "    };\n" +
+                "    pollNextFrame();\n" +
                 "\n" +
-                "    // Authentic Canon Pip-Pip Double Beep\n" +
+                "    // Poll Status from Engine\n" +
+                "    setInterval(async () => {\n" +
+                "      try {\n" +
+                "        const res = await fetch('/api/status');\n" +
+                "        const data = await res.json();\n" +
+                "        if (data.streaming) {\n" +
+                "          statusBadge.className = 'badge';\n" +
+                "          statusBadge.textContent = '🟢 Canon Live: ' + data.fps.toFixed(1) + ' FPS';\n" +
+                "        } else if (data.connected) {\n" +
+                "          statusBadge.className = 'badge';\n" +
+                "          statusBadge.textContent = '🟡 Canon Connected';\n" +
+                "        } else {\n" +
+                "          statusBadge.className = 'badge disconnected';\n" +
+                "          statusBadge.textContent = '🔴 Disconnected';\n" +
+                "        }\n" +
+                "      } catch(e) {}\n" +
+                "    }, 1200);\n" +
+                "\n" +
+                "    // Canon Pip-Pip Double Beep\n" +
                 "    function playCanonBeep() {\n" +
                 "      try {\n" +
                 "        const AudioClass = window.AudioContext || window.webkitAudioContext;\n" +
@@ -379,7 +429,7 @@ public class LocalHttpServer {
                 "      } catch(e) {}\n" +
                 "    }\n" +
                 "\n" +
-                "    // Tap Viewport to Trigger Auto-Focus + Light Dimming Effect\n" +
+                "    // Tap Viewport to Trigger Auto-Focus\n" +
                 "    async function onCanvasTap(e) {\n" +
                 "      const rect = e.currentTarget.getBoundingClientRect();\n" +
                 "      const x = ((e.clientX - rect.left) / rect.width) * 100;\n" +
@@ -389,7 +439,6 @@ public class LocalHttpServer {
                 "      afBox.className = 'af-box active';\n" +
                 "      document.getElementById('lblFocusStatus').textContent = 'Focusing...';\n" +
                 "\n" +
-                "      // Drive lens near/far\n" +
                 "      await sendFocus(1);\n" +
                 "      setTimeout(() => {\n" +
                 "        afBox.className = 'af-box active locked';\n" +
@@ -430,23 +479,8 @@ public class LocalHttpServer {
                 "      });\n" +
                 "    }\n" +
                 "\n" +
-                "    // VDO.Ninja 4K Live Broadcast to OBS Studio\n" +
-                "    function toggleVdoBroadcast() {\n" +
-                "      const btn = document.getElementById('btnVdoBroadcast');\n" +
-                "      const box = document.getElementById('vdoStatusBox');\n" +
-                "      isBroadcasting = !isBroadcasting;\n" +
-                "      if (isBroadcasting) {\n" +
-                "        btn.textContent = '⏹ Stop VDO.Ninja Broadcast';\n" +
-                "        btn.className = 'gold';\n" +
-                "        box.style.display = 'block';\n" +
-                "        // Open VDO.Ninja push window or background frame\n" +
-                "        const pushUrl = 'https://vdo.ninja/?push=' + encodeURIComponent(roomName) + '&webcam&autostart&videobitrate=15000&scale=100';\n" +
-                "        window.open(pushUrl, '_blank');\n" +
-                "      } else {\n" +
-                "        btn.textContent = '🚀 Start VDO.Ninja 4K Broadcast to OBS';\n" +
-                "        btn.className = 'primary';\n" +
-                "        box.style.display = 'none';\n" +
-                "      }\n" +
+                "    function startVdoBroadcast() {\n" +
+                "      window.location.href = 'gaviru://vdo_broadcast';\n" +
                 "    }\n" +
                 "\n" +
                 "    function copyObsLink() {\n" +

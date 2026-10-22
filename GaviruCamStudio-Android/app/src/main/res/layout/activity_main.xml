@@ -19,40 +19,40 @@
             android:orientation="horizontal">
 
             <Button
-                android:id="@+id/btnVdoLive"
+                android:id="@+id/btnRemoteControl"
                 android:layout_width="wrap_content"
                 android:layout_height="38dp"
-                android:text="🥷 VDO 4K Live"
+                android:text="📷 Canon Focus Studio"
                 android:textSize="11sp"
                 android:textColor="@color/text_white"
                 android:backgroundTint="@color/primary"
                 android:layout_marginEnd="6dp" />
 
             <Button
-                android:id="@+id/btnRemoteControl"
-                android:layout_width="wrap_content"
-                android:layout_height="38dp"
-                android:text="📷 Cam Control"
-                android:textSize="11sp"
-                android:textColor="@color/text_white"
-                android:backgroundTint="#3B82F6"
-                android:layout_marginEnd="6dp" />
-
-            <Button
                 android:id="@+id/btnPhoneCamPush"
                 android:layout_width="wrap_content"
                 android:layout_height="38dp"
-                android:text="📱 Phone ➔ OBS"
+                android:text="🚀 Stream Canon ➔ OBS"
                 android:textSize="11sp"
                 android:textColor="@color/text_white"
                 android:backgroundTint="@color/green_neon"
                 android:layout_marginEnd="6dp" />
 
             <Button
+                android:id="@+id/btnVdoLive"
+                android:layout_width="wrap_content"
+                android:layout_height="38dp"
+                android:text="📺 OBS Monitor"
+                android:textSize="11sp"
+                android:textColor="@color/text_white"
+                android:backgroundTint="#3B82F6"
+                android:layout_marginEnd="6dp" />
+
+            <Button
                 android:id="@+id/btnSettings"
                 android:layout_width="wrap_content"
                 android:layout_height="38dp"
-                android:text="⚙️ Server IP"
+                android:text="⚙️ Settings"
                 android:textSize="11sp"
                 android:textColor="@color/text_white"
                 android:backgroundTint="#475569" />
@@ -68,7 +68,7 @@
         android:visibility="gone"
         android:indeterminate="true" />
 
-    <!-- Main Live WebRTC & Control View -->
+    <!-- Main Viewport -->
     <WebView
         android:id="@+id/webView"
         android:layout_width="match_parent"
