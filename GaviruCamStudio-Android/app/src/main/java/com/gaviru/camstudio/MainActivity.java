@@ -1,9 +1,12 @@
 package com.gaviru.camstudio;
 
 import android.Manifest;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.media.AudioFormat;
@@ -28,6 +31,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -40,8 +44,9 @@ import androidx.core.content.ContextCompat;
 
 /**
  * Gaviru Cam Studio - Android Native Application
- * Connects directly to Canon EOS Camera Wi-Fi, renders 0-latency live view via native ImageView,
- * provides Tap-to-Focus, mechanical Shutter Release, and broadcasts to OBS Studio via VDO.Ninja.
+ * Supports two dual-stream workflows:
+ * 1. Phone Camera Mode: Captures phone's built-in 4K/1080p 60FPS camera (Back/Front) and streams directly to VDO.Ninja / OBS.
+ * 2. Canon DSLR Mode: Connects to Canon EOS Camera Wi-Fi (PTP/IP), 0-latency live view, tap-to-focus, and streams to OBS.
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -50,6 +55,18 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREFS_NAME = "GaviruCamPrefs";
     private static final String KEY_CAMERA_IP = "camera_ip";
     private static final String KEY_ROOM_NAME = "vdo_room_name";
+    private static final String KEY_MODE = "app_mode";
+
+    public enum AppMode {
+        PHONE_CAM,
+        CANON_DSLR
+    }
+
+    private AppMode currentMode = AppMode.PHONE_CAM;
+    private boolean isPhoneBroadcasting = false;
+    private boolean isFrontCamera = false;
+    private String selectedResolution = "1080p";
+    private int selectedFps = 60;
 
     private ImageView imgLiveView;
     private View focusBox;
@@ -58,6 +75,11 @@ public class MainActivity extends AppCompatActivity {
     private TextView txtStatusBadge;
     private TextView txtDiagInfo;
     private WebView vdoWebView;
+
+    private LinearLayout phoneControls;
+    private LinearLayout canonControls;
+    private Button btnModePhone;
+    private Button btnModeCanon;
 
     private SharedPreferences prefs;
     private String cameraIp = "192.168.1.1";
@@ -79,6 +101,12 @@ public class MainActivity extends AppCompatActivity {
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         cameraIp = prefs.getString(KEY_CAMERA_IP, "192.168.1.1");
         roomName = prefs.getString(KEY_ROOM_NAME, "gaviru-cam-pro");
+        String savedMode = prefs.getString(KEY_MODE, AppMode.PHONE_CAM.name());
+        try {
+            currentMode = AppMode.valueOf(savedMode);
+        } catch (Exception e) {
+            currentMode = AppMode.PHONE_CAM;
+        }
 
         imgLiveView = findViewById(R.id.imgLiveView);
         focusBox = findViewById(R.id.focusBox);
@@ -88,16 +116,181 @@ public class MainActivity extends AppCompatActivity {
         txtDiagInfo = findViewById(R.id.txtDiagInfo);
         vdoWebView = findViewById(R.id.vdoWebView);
 
+        phoneControls = findViewById(R.id.phoneControls);
+        canonControls = findViewById(R.id.canonControls);
+        btnModePhone = findViewById(R.id.btnModePhone);
+        btnModeCanon = findViewById(R.id.btnModeCanon);
+
         setupControls();
         setupVdoNinjaBackgroundBroadcaster();
         checkAndRequestPermissions();
 
-        // 1. Proactively detect Wi-Fi network and register callback
+        // Initialize to saved or default mode
+        if (currentMode == AppMode.PHONE_CAM) {
+            switchToPhoneCameraMode();
+        } else {
+            switchToCanonMode();
+        }
+    }
+
+    private void switchToPhoneCameraMode() {
+        currentMode = AppMode.PHONE_CAM;
+        prefs.edit().putString(KEY_MODE, AppMode.PHONE_CAM.name()).apply();
+
+        btnModePhone.setBackgroundTintList(ColorStateList.valueOf(0xFF2563EB));
+        btnModePhone.setTextColor(0xFFFFFFFF);
+        btnModeCanon.setBackgroundTintList(ColorStateList.valueOf(0xFF1E293B));
+        btnModeCanon.setTextColor(0xFF94A3B8);
+
+        phoneControls.setVisibility(View.VISIBLE);
+        canonControls.setVisibility(View.GONE);
+
+        imgLiveView.setVisibility(View.GONE);
+        focusBox.setVisibility(View.GONE);
+        waitingOverlay.setVisibility(View.GONE);
+        vdoWebView.setVisibility(View.VISIBLE);
+
+        // Stop Canon services while in Phone Mode
+        if (canonEngine != null) {
+            canonEngine.stop();
+            canonEngine = null;
+        }
+        if (localServer != null) {
+            localServer.stop();
+            localServer = null;
+        }
+
+        txtStatusBadge.setText("Standby");
+        txtStatusBadge.setBackgroundColor(0xFF251010);
+        txtStatusBadge.setTextColor(0xFFFCA5A5);
+        txtDiagInfo.setText("Mode: 📱 Phone Camera | Room: " + roomName + " | Ready to Stream (Back Cam)");
+    }
+
+    private void switchToCanonMode() {
+        currentMode = AppMode.CANON_DSLR;
+        prefs.edit().putString(KEY_MODE, AppMode.CANON_DSLR.name()).apply();
+
+        btnModeCanon.setBackgroundTintList(ColorStateList.valueOf(0xFF2563EB));
+        btnModeCanon.setTextColor(0xFFFFFFFF);
+        btnModePhone.setBackgroundTintList(ColorStateList.valueOf(0xFF1E293B));
+        btnModePhone.setTextColor(0xFF94A3B8);
+
+        canonControls.setVisibility(View.VISIBLE);
+        phoneControls.setVisibility(View.GONE);
+
+        imgLiveView.setVisibility(View.VISIBLE);
+        waitingOverlay.setVisibility(View.VISIBLE);
+        vdoWebView.setVisibility(View.INVISIBLE);
+
+        // If phone was streaming, reset url
+        if (isPhoneBroadcasting) {
+            isPhoneBroadcasting = false;
+            Button btnStream = findViewById(R.id.btnStreamPhoneObs);
+            if (btnStream != null) {
+                btnStream.setText("🚀 Start Phone Cam Stream");
+                btnStream.setBackgroundTintList(ColorStateList.valueOf(0xFF10B981));
+            }
+        }
+        vdoWebView.loadUrl("about:blank");
+
+        // Proactively detect Wi-Fi network and start Canon services
         detectAndBindWifi();
         registerWifiNetworkCallback();
-
-        // 2. Start Canon Wi-Fi PTP/IP Engine & Local Server
         startLocalServices();
+    }
+
+    private void togglePhoneStreaming() {
+        isPhoneBroadcasting = !isPhoneBroadcasting;
+        Button btnStreamPhoneObs = findViewById(R.id.btnStreamPhoneObs);
+        if (isPhoneBroadcasting) {
+            btnStreamPhoneObs.setText("⏹ Stop Phone Stream");
+            btnStreamPhoneObs.setBackgroundTintList(ColorStateList.valueOf(0xFFEF4444));
+
+            int bitrate = selectedResolution.equals("4k") ? 18000 : selectedResolution.equals("1080p") ? 9000 : 4500;
+            String facing = isFrontCamera ? "user" : "back";
+
+            // Complete WebRTC Push URL for Phone Camera
+            String vdoPhonePushUrl = "https://vdo.ninja/?push=" + roomName +
+                    "&webcam&autostart&videobitrate=" + bitrate +
+                    "&audiobitrate=192&scale=100&quality=0&fps=" + selectedFps +
+                    "&facing=" + facing;
+
+            vdoWebView.loadUrl(vdoPhonePushUrl);
+
+            txtStatusBadge.setText("🟢 LIVE " + selectedResolution.toUpperCase() + " " + selectedFps + "FPS");
+            txtStatusBadge.setBackgroundColor(0xFF102219);
+            txtStatusBadge.setTextColor(0xFF6EE7B7);
+
+            String obsLink = "https://vdo.ninja/?view=" + roomName + "&cleanoutput";
+            txtDiagInfo.setText("Broadcasting Live! OBS Link: " + obsLink);
+
+            showObsLinkDialog(obsLink);
+        } else {
+            btnStreamPhoneObs.setText("🚀 Start Phone Cam Stream");
+            btnStreamPhoneObs.setBackgroundTintList(ColorStateList.valueOf(0xFF10B981));
+            vdoWebView.loadUrl("about:blank");
+
+            txtStatusBadge.setText("Standby");
+            txtStatusBadge.setBackgroundColor(0xFF251010);
+            txtStatusBadge.setTextColor(0xFFFCA5A5);
+            txtDiagInfo.setText("Mode: 📱 Phone Camera | Room: " + roomName + " | Standby");
+            Toast.makeText(this, "Stream Stopped", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void flipPhoneCamera() {
+        isFrontCamera = !isFrontCamera;
+        Toast.makeText(this, isFrontCamera ? "Switched to Front (Selfie) Cam" : "Switched to Back Camera", Toast.LENGTH_SHORT).show();
+        if (isPhoneBroadcasting) {
+            togglePhoneStreaming(); // Stop
+            vdoWebView.postDelayed(this::togglePhoneStreaming, 600); // Restart with new camera
+        }
+    }
+
+    private void showObsLinkDialog(String obsLink) {
+        new AlertDialog.Builder(this)
+                .setTitle("🚀 Phone Camera Streaming to OBS!")
+                .setMessage("Phone එකේ Camera එක VDO.Ninja හරහා සජීවීව OBS එකට stream වෙමින් පවතී!\n\nOBS Studio හි Browser Source එකට මෙම Link එක ලබා දෙන්න:\n\n" + obsLink)
+                .setPositiveButton("📋 Copy OBS Link", (dialog, which) -> {
+                    copyObsLinkToClipboard();
+                })
+                .setNegativeButton("OK", null)
+                .show();
+    }
+
+    private void copyObsLinkToClipboard() {
+        String obsLink = "https://vdo.ninja/?view=" + roomName + "&cleanoutput";
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        ClipData clip = ClipData.newPlainText("OBS Link", obsLink);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(clip);
+            Toast.makeText(this, "OBS Link Copied!", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void showQualityDialog() {
+        String[] options = {
+                "1080p 60FPS (Full HD - Highly Recommended)",
+                "4K Ultra HD 60FPS (High Bitrate)",
+                "720p 60FPS (Smooth / Low Latency)"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("⚡ Select Video Quality")
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) selectedResolution = "1080p";
+                    else if (which == 1) selectedResolution = "4k";
+                    else if (which == 2) selectedResolution = "720p";
+
+                    Button btnQuality = findViewById(R.id.btnPhoneQuality);
+                    if (btnQuality != null) {
+                        btnQuality.setText("⚡ " + selectedResolution.toUpperCase() + " 60FPS");
+                    }
+                    if (isPhoneBroadcasting) {
+                        togglePhoneStreaming();
+                        vdoWebView.postDelayed(this::togglePhoneStreaming, 600);
+                    }
+                })
+                .show();
     }
 
     private void detectAndBindWifi() {
@@ -149,7 +342,9 @@ public class MainActivity extends AppCompatActivity {
                 }
             };
 
-            cm.registerNetworkCallback(request, wifiNetworkCallback);
+            if (cm != null) {
+                cm.registerNetworkCallback(request, wifiNetworkCallback);
+            }
         } catch (Exception e) {
             Log.w(TAG, "Error registering network callback: " + e.getMessage());
         }
@@ -161,15 +356,20 @@ public class MainActivity extends AppCompatActivity {
             if (wm != null) {
                 DhcpInfo dhcp = wm.getDhcpInfo();
                 if (dhcp != null && dhcp.gateway != 0) {
-                    int g = dhcp.gateway;
-                    String detected = String.format("%d.%d.%d.%d", (g & 0xFF), (g >> 8 & 0xFF), (g >> 16 & 0xFF), (g >> 24 & 0xFF));
-                    if (!detected.equals("0.0.0.0") && !detected.equals(cameraIp)) {
-                        cameraIp = detected;
+                    int gw = dhcp.gateway;
+                    String detectedIp = String.format("%d.%d.%d.%d",
+                            (gw & 0xFF),
+                            ((gw >> 8) & 0xFF),
+                            ((gw >> 16) & 0xFF),
+                            ((gw >> 24) & 0xFF));
+                    if (!detectedIp.equals("0.0.0.0") && !detectedIp.equals(cameraIp)) {
+                        cameraIp = detectedIp;
                         prefs.edit().putString(KEY_CAMERA_IP, cameraIp).apply();
-                        Log.i(TAG, "Auto-detected Canon Camera Gateway IP: " + cameraIp);
                         runOnUiThread(() -> {
                             Toast.makeText(this, "Camera Gateway: " + cameraIp, Toast.LENGTH_SHORT).show();
-                            startLocalServices();
+                            if (currentMode == AppMode.CANON_DSLR) {
+                                startLocalServices();
+                            }
                         });
                     }
                 }
@@ -178,6 +378,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startLocalServices() {
+        if (currentMode != AppMode.CANON_DSLR) return;
         try {
             if (canonEngine != null) {
                 canonEngine.stop();
@@ -193,7 +394,6 @@ public class MainActivity extends AppCompatActivity {
                 canonEngine.setWifiNetwork(currentWifiNetwork);
             }
 
-            // Real-time diagnostic logging directly on phone HUD
             canonEngine.setLogListener(line -> runOnUiThread(() -> {
                 txtDiagInfo.setText(line);
                 if (line.contains("Live View Active") || line.contains("LIVE") || line.contains("Streaming")) {
@@ -211,7 +411,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             }));
 
-            // Set frame listener for 0-latency native rendering!
             canonEngine.setFrameListener(jpeg -> {
                 try {
                     Bitmap bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
@@ -244,6 +443,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupControls() {
+        btnModePhone.setOnClickListener(v -> switchToPhoneCameraMode());
+        btnModeCanon.setOnClickListener(v -> switchToCanonMode());
+
+        // Phone Mode Controls
+        Button btnStreamPhoneObs = findViewById(R.id.btnStreamPhoneObs);
+        Button btnFlipPhoneCam = findViewById(R.id.btnFlipPhoneCam);
+        Button btnCopyPhoneObsLink = findViewById(R.id.btnCopyPhoneObsLink);
+        Button btnPhoneQuality = findViewById(R.id.btnPhoneQuality);
+
+        btnStreamPhoneObs.setOnClickListener(v -> togglePhoneStreaming());
+        btnFlipPhoneCam.setOnClickListener(v -> flipPhoneCamera());
+        btnCopyPhoneObsLink.setOnClickListener(v -> copyObsLinkToClipboard());
+        btnPhoneQuality.setOnClickListener(v -> showQualityDialog());
+
+        // Canon Mode Controls
         Button btnShutter = findViewById(R.id.btnShutter);
         Button btnStreamObs = findViewById(R.id.btnStreamObs);
         Button btnSettings = findViewById(R.id.btnSettings);
@@ -254,12 +468,10 @@ public class MainActivity extends AppCompatActivity {
         Button btnNear1 = findViewById(R.id.btnNear1);
         Button btnNear3 = findViewById(R.id.btnNear3);
 
-        // Guide Button
         if (btnGuide != null) {
             btnGuide.setOnClickListener(v -> showGuideDialog());
         }
 
-        // 1. Shutter Button
         btnShutter.setOnClickListener(v -> {
             Toast.makeText(this, "📸 Firing Shutter...", Toast.LENGTH_SHORT).show();
             playCanonBeep();
@@ -270,13 +482,11 @@ public class MainActivity extends AppCompatActivity {
             }).start();
         });
 
-        // 2. Focus Drive Buttons
         btnFar3.setOnClickListener(v -> new Thread(() -> { if (canonEngine != null) canonEngine.driveLensFocus(1, 3); }).start());
         btnFar1.setOnClickListener(v -> new Thread(() -> { if (canonEngine != null) canonEngine.driveLensFocus(1, 1); }).start());
         btnNear1.setOnClickListener(v -> new Thread(() -> { if (canonEngine != null) canonEngine.driveLensFocus(2, 1); }).start());
         btnNear3.setOnClickListener(v -> new Thread(() -> { if (canonEngine != null) canonEngine.driveLensFocus(2, 3); }).start());
 
-        // 3. Tap to Focus on ImageView
         imgLiveView.setOnTouchListener((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 float x = event.getX();
@@ -295,23 +505,17 @@ public class MainActivity extends AppCompatActivity {
             return true;
         });
 
-        // 4. Stream to OBS (VDO.Ninja) Button
-        btnStreamObs.setOnClickListener(v -> toggleObsStreaming(btnStreamObs));
-
-        // 5. Settings Button
+        btnStreamObs.setOnClickListener(v -> toggleCanonObsStreaming(btnStreamObs));
         btnSettings.setOnClickListener(v -> showSettingsDialog());
     }
 
     private void showGuideDialog() {
         new AlertDialog.Builder(this)
-                .setTitle("📷 Canon Camera Wi-Fi Setup Guide")
-                .setMessage("Canon කැමරාව සාර්ථකව සම්බන්ධ කර ගැනීමට:\n\n" +
-                        "1. කැමරාවේ Wi-Fi Menu වෙත යන්න.\n\n" +
-                        "2. ⚠️ ඉතා වැදගත්: 'Connect to smartphone' (📱) තෝරනවා වෙනුවට 'Remote control (EOS Utility)' (💻 පරිගණක අයිකනය) තෝරන්න!\n" +
-                        "(එවිට කැමරාව සම්පූර්ණ Live View එක සහ Shutter එක කිසිදු බාධාවකින් තොරව Phone එකට ලබා දෙයි!)\n\n" +
-                        "3. Camera Mode Dial එක 'M' (Manual) හෝ 'P' (Program) වෙත දමන්න.\n\n" +
-                        "4. Lens එකේ AF/MF ස්විචය 'AF' මත ඇති බව තහවුරු කරන්න.\n\n" +
-                        "5. Phone එකේ Wi-Fi වලින් කැමරාවට connect වී App එක open කරන්න.")
+                .setTitle("📷 Gaviru Cam Studio Help")
+                .setMessage("📱 1. Phone Camera Mode:\n" +
+                        "Phone එකේ කැමරාව (Back හෝ Front) භාවිතා කර VDO.Ninja හරහා OBS Studio වෙත 4K/1080p 60FPS සජීවීව Push කරයි.\n\n" +
+                        "📷 2. Canon DSLR Wi-Fi Mode:\n" +
+                        "Canon කැමරාවේ Wi-Fi Menu වෙත ගොස් 'Remote control (EOS Utility)' (💻 පරිගණක අයිකනය) තෝරා Phone එකෙන් connect වන්න. Camera dial එක 'M' හෝ 'P' මත තබන්න.")
                 .setPositiveButton("තේරුණා (OK)", null)
                 .show();
     }
@@ -323,29 +527,19 @@ public class MainActivity extends AppCompatActivity {
         focusBox.postDelayed(() -> focusBox.setVisibility(View.GONE), 1600);
     }
 
-    private void toggleObsStreaming(Button btnStreamObs) {
+    private void toggleCanonObsStreaming(Button btnStreamObs) {
         isBroadcastingToObs = !isBroadcastingToObs;
         if (isBroadcastingToObs) {
-            btnStreamObs.setText("⏹ Stop OBS Stream");
-            btnStreamObs.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFF59E0B));
+            btnStreamObs.setText("⏹ Stop Canon OBS");
+            btnStreamObs.setBackgroundTintList(ColorStateList.valueOf(0xFFF59E0B));
             String vdoPushUrl = "https://vdo.ninja/?push=" + roomName + "&webcam&autostart&videobitrate=15000&scale=100";
             vdoWebView.loadUrl(vdoPushUrl);
 
             String obsLink = "https://vdo.ninja/?view=" + roomName + "&cleanoutput";
-            new AlertDialog.Builder(this)
-                    .setTitle("🚀 Streaming Canon Camera to OBS!")
-                    .setMessage("Canon Live Feed එක VDO.Ninja හරහා OBS Studio එකට stream වෙමින් පවතී!\n\nOBS Studio එකේ Browser Source එකට මෙම Link එක ලබා දෙන්න:\n\n" + obsLink)
-                    .setPositiveButton("📋 Copy OBS Link", (dialog, which) -> {
-                        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                        android.content.ClipData clip = android.content.ClipData.newPlainText("OBS Link", obsLink);
-                        clipboard.setPrimaryClip(clip);
-                        Toast.makeText(this, "OBS Link Copied!", Toast.LENGTH_SHORT).show();
-                    })
-                    .setNegativeButton("OK", null)
-                    .show();
+            showObsLinkDialog(obsLink);
         } else {
             btnStreamObs.setText("🚀 Stream Canon ➔ OBS");
-            btnStreamObs.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF10B981));
+            btnStreamObs.setBackgroundTintList(ColorStateList.valueOf(0xFF10B981));
             vdoWebView.loadUrl("about:blank");
             Toast.makeText(this, "OBS Broadcast Stopped", Toast.LENGTH_SHORT).show();
         }
@@ -356,6 +550,10 @@ public class MainActivity extends AppCompatActivity {
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         ws.setMediaPlaybackRequiresUserGesture(false);
+        ws.setAllowFileAccess(true);
+        ws.setAllowContentAccess(true);
+        ws.setUseWideViewPort(true);
+        ws.setLoadWithOverviewMode(true);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
@@ -364,12 +562,16 @@ public class MainActivity extends AppCompatActivity {
         vdoWebView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                injectCanonWebcamShim(view);
+                if (currentMode == AppMode.CANON_DSLR) {
+                    injectCanonWebcamShim(view);
+                }
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                injectCanonWebcamShim(view);
+                if (currentMode == AppMode.CANON_DSLR) {
+                    injectCanonWebcamShim(view);
+                }
             }
         });
 
@@ -399,81 +601,76 @@ public class MainActivity extends AppCompatActivity {
             "  function fetchFrame() {" +
             "    if (!busy) {" +
             "      busy = true;" +
-            "      img.src = 'http://127.0.0.1:8787/snapshot.jpg?t=' + Date.now();" +
+            "      img.src = 'http://127.0.0.1:8080/live.jpg?t=' + Date.now();" +
             "    }" +
             "  }" +
-            "  img.onload = function() {" +
-            "    if (img.naturalWidth > 0) {" +
-            "      canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;" +
-            "      ctx.drawImage(img, 0, 0);" +
-            "    }" +
+            "  img.onload = () => {" +
+            "    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);" +
             "    busy = false;" +
             "  };" +
-            "  img.onerror = function() { busy = false; };" +
-            "  setInterval(fetchFrame, 25);" +
-            "  const canonStream = canvas.captureStream(30);" +
-            "  const origGUM = navigator.mediaDevices ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices) : null;" +
-            "  if (navigator.mediaDevices) {" +
-            "    navigator.mediaDevices.getUserMedia = async function(c) {" +
-            "      if (c && c.audio && origGUM) {" +
-            "        try {" +
-            "          const aud = await origGUM({ audio: true });" +
-            "          aud.getAudioTracks().forEach(t => canonStream.addTrack(t));" +
-            "        } catch(e) {}" +
-            "      }" +
-            "      return canonStream;" +
-            "    };" +
-            "  }" +
+            "  img.onerror = () => { busy = false; };" +
+            "  setInterval(fetchFrame, 33);" +
+            "  const fps = 30;" +
+            "  const stream = canvas.captureStream(fps);" +
+            "  navigator.mediaDevices.getUserMedia = function(constraints) {" +
+            "    return Promise.resolve(stream);" +
+            "  };" +
             "})();";
-        view.evaluateJavascript(js, null);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            view.evaluateJavascript(js, null);
+        } else {
+            view.loadUrl("javascript:" + js);
+        }
     }
 
     private void showSettingsDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Canon Wi-Fi & VDO.Ninja Settings");
+        builder.setTitle("⚙️ Configuration Settings");
 
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(40, 20, 40, 20);
-
-        final EditText inputIp = new EditText(this);
-        inputIp.setHint("Camera Wi-Fi IP (default: 192.168.1.1)");
-        inputIp.setText(cameraIp);
-        layout.addView(inputIp);
+        layout.setPadding(40, 20, 40, 10);
 
         final EditText inputRoom = new EditText(this);
         inputRoom.setHint("VDO.Ninja Room Name (default: gaviru-cam-pro)");
         inputRoom.setText(roomName);
         layout.addView(inputRoom);
 
+        final EditText inputIp = new EditText(this);
+        inputIp.setHint("Canon Camera Wi-Fi IP (default: 192.168.1.1)");
+        inputIp.setText(cameraIp);
+        layout.addView(inputIp);
+
         builder.setView(layout);
-        builder.setPositiveButton("Save & Reconnect", (dialog, which) -> {
-            cameraIp = inputIp.getText().toString().trim();
+        builder.setPositiveButton("Save Settings", (dialog, which) -> {
             roomName = inputRoom.getText().toString().trim();
-            if (cameraIp.isEmpty()) cameraIp = "192.168.1.1";
+            cameraIp = inputIp.getText().toString().trim();
             if (roomName.isEmpty()) roomName = "gaviru-cam-pro";
+            if (cameraIp.isEmpty()) cameraIp = "192.168.1.1";
 
             prefs.edit()
-                    .putString(KEY_CAMERA_IP, cameraIp)
                     .putString(KEY_ROOM_NAME, roomName)
+                    .putString(KEY_CAMERA_IP, cameraIp)
                     .apply();
 
-            startLocalServices();
+            if (currentMode == AppMode.CANON_DSLR) {
+                startLocalServices();
+            } else {
+                txtDiagInfo.setText("Mode: 📱 Phone Camera | Room: " + roomName + " | Ready to Stream");
+            }
         });
         builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
         builder.show();
     }
 
-    /**
-     * Programmatic Authentic Canon "Pip-Pip" Double Beep Audio
-     */
     public static void playCanonBeep() {
         new Thread(() -> {
             try {
                 int sampleRate = 44100;
-                int pip1Len = (int) (sampleRate * 0.055); // 55ms
-                int pauseLen = (int) (sampleRate * 0.020); // 20ms
-                int pip2Len = (int) (sampleRate * 0.065); // 65ms
+                int pip1Len = (int) (sampleRate * 0.055);
+                int pauseLen = (int) (sampleRate * 0.020);
+                int pip2Len = (int) (sampleRate * 0.065);
                 int totalSamples = pip1Len + pauseLen + pip2Len;
 
                 short[] buffer = new short[totalSamples];
@@ -528,7 +725,7 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQ_CODE) {
-            Toast.makeText(this, "Permissions granted!", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Camera & Audio Permissions Granted!", Toast.LENGTH_SHORT).show();
         }
     }
 

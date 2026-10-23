@@ -46,31 +46,33 @@ jobs:
     - name: Prepare Output Directory
       run: |
         mkdir -p build-output
-        cp GaviruCamStudio-Android/app/build/outputs/apk/debug/app-debug.apk build-output/GaviruCamStudio-v1.0.0.apk
+        cp GaviruCamStudio-Android/app/build/outputs/apk/debug/app-debug.apk build-output/GaviruCamStudio-v1.2.0.apk
+        cp GaviruCamStudio-Android/app/build/outputs/apk/debug/app-debug.apk build-output/GaviruCamStudio.apk
         ls -lh build-output/
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: GaviruCamStudio-APK
-        path: build-output/GaviruCamStudio-v1.0.0.apk
+        path: build-output/GaviruCamStudio-v1.2.0.apk
         retention-days: 30
 
     - name: Create GitHub Release with APK
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       with:
-        tag_name: v1.0.0
-        name: "Gaviru Cam Studio Android App v1.0.0"
+        tag_name: v1.2.0
+        name: "Gaviru Cam Studio Android App v1.2.0"
         body: |
-          ### 🚀 Gaviru Cam Studio Android App (Wi-Fi Canon Focus & 4K VDO.Ninja OBS Streaming)
-          - **Pure Canon PTP/IP Wi-Fi Engine**: Connect directly to Canon Camera Wi-Fi (`192.168.1.1:15740`).
-          - **Focus Controls**: Near/Far Focus stepping, Sweet Spot focus light dimming/brightening, authentic Canon double-beep audio confirmation.
-          - **OBS Studio Broadcast**: Streams 4K / 1080p Ultra HD video to OBS Studio via VDO.Ninja over 4G/5G mobile data.
-          - **No PC Required**: Operates completely stand-alone on Android.
+          ### 🚀 Gaviru Cam Studio Android App v1.2.0 (Phone Camera & Canon Wi-Fi to VDO.Ninja / OBS)
+          - **📱 Phone Camera Mode**: Stream phone's own camera (Back/Front) directly to VDO.Ninja & OBS Studio at 1080p/4K 60FPS.
+          - **📷 Canon PTP/IP Wi-Fi Engine**: Connect directly to Canon DSLR Wi-Fi (`192.168.1.1:15740`), 0-latency live view, tap-to-focus & shutter control.
+          - **🎬 OBS Studio Instant Output**: Copy Browser Source link in 1-click for seamless streaming into OBS Studio.
         draft: false
         prerelease: false
-        files: build-output/GaviruCamStudio-v1.0.0.apk
+        files: |
+          build-output/GaviruCamStudio-v1.2.0.apk
+          build-output/GaviruCamStudio.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       continue-on-error: true

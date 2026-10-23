@@ -42,7 +42,7 @@
                 android:id="@+id/btnSettings"
                 android:layout_width="wrap_content"
                 android:layout_height="34dp"
-                android:text="⚙️ IP"
+                android:text="⚙️ Room"
                 android:textSize="11sp"
                 android:textColor="#F8FAFC"
                 android:backgroundTint="#334155"
@@ -54,7 +54,7 @@
                 android:layout_height="wrap_content"
                 android:background="#251010"
                 android:textColor="#FCA5A5"
-                android:text="Connecting..."
+                android:text="Standby"
                 android:textSize="11sp"
                 android:textStyle="bold"
                 android:paddingLeft="8dp"
@@ -64,11 +64,43 @@
 
         </LinearLayout>
 
+        <!-- Mode Selector: Phone Camera vs Canon DSLR -->
+        <LinearLayout
+            android:id="@+id/modeSelector"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="6dp">
+
+            <Button
+                android:id="@+id/btnModePhone"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:text="📱 Phone Camera"
+                android:textSize="12sp"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#2563EB"
+                android:layout_marginEnd="4dp" />
+
+            <Button
+                android:id="@+id/btnModeCanon"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:text="📷 Canon DSLR Wi-Fi"
+                android:textSize="12sp"
+                android:textColor="#94A3B8"
+                android:backgroundTint="#1E293B"
+                android:layout_marginStart="4dp" />
+
+        </LinearLayout>
+
         <TextView
             android:id="@+id/txtDiagInfo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Camera IP: 192.168.1.1:15740 | Initializing..."
+            android:text="Mode: Phone Camera | Room: gaviru-cam-pro | Ready to Stream"
             android:textColor="#A7F3D0"
             android:textSize="11sp"
             android:fontFamily="monospace"
@@ -76,7 +108,7 @@
             android:ellipsize="start"
             android:background="#0A0E17"
             android:padding="4dp"
-            android:layout_marginTop="4dp" />
+            android:layout_marginTop="5dp" />
 
     </LinearLayout>
 
@@ -94,7 +126,8 @@
             android:id="@+id/imgLiveView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:scaleType="fitCenter" />
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
 
         <!-- Tap-To-Focus Indicator Box -->
         <View
@@ -104,14 +137,15 @@
             android:background="@drawable/focus_rect"
             android:visibility="gone" />
 
-        <!-- Waiting Message -->
+        <!-- Canon Waiting Overlay -->
         <LinearLayout
             android:id="@+id/waitingOverlay"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:orientation="vertical"
-            android:gravity="center">
+            android:gravity="center"
+            android:visibility="gone">
 
             <ProgressBar
                 android:layout_width="38dp"
@@ -132,12 +166,12 @@
 
         </LinearLayout>
 
-        <!-- Hidden WebView for VDO.Ninja Background Broadcasting -->
+        <!-- Interactive Fullscreen WebView for Phone Camera VDO.Ninja Streaming -->
         <WebView
             android:id="@+id/vdoWebView"
-            android:layout_width="1dp"
-            android:layout_height="1dp"
-            android:visibility="invisible" />
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="visible" />
 
     </FrameLayout>
 
@@ -151,84 +185,161 @@
         android:background="#111520"
         android:padding="8dp">
 
-        <!-- Shutter Button & OBS Stream Button -->
+        <!-- Phone Camera Mode Controls -->
         <LinearLayout
+            android:id="@+id/phoneControls"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="6dp">
+            android:orientation="vertical"
+            android:visibility="visible">
 
-            <Button
-                android:id="@+id/btnShutter"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
-                android:layout_weight="1"
-                android:text="📸 Take Photo (Shutter)"
-                android:textSize="13sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#DC2626"
-                android:layout_marginEnd="6dp" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="6dp">
 
-            <Button
-                android:id="@+id/btnStreamObs"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
-                android:layout_weight="1"
-                android:text="🚀 Stream Canon ➔ OBS"
-                android:textSize="12sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#10B981" />
+                <Button
+                    android:id="@+id/btnStreamPhoneObs"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1.4"
+                    android:text="🚀 Start Phone Cam Stream"
+                    android:textSize="13sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#10B981"
+                    android:layout_marginEnd="6dp" />
+
+                <Button
+                    android:id="@+id/btnFlipPhoneCam"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="0.8"
+                    android:text="🔄 Flip Cam"
+                    android:textSize="12sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#475569" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnCopyPhoneObsLink"
+                    android:layout_width="0dp"
+                    android:layout_height="38dp"
+                    android:layout_weight="1"
+                    android:text="📋 Copy OBS Link"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#D97706"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btnPhoneQuality"
+                    android:layout_width="0dp"
+                    android:layout_height="38dp"
+                    android:layout_weight="1"
+                    android:text="⚡ 1080p / 4K 60FPS"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#1E293B" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
-        <!-- Focus Drive Control Buttons -->
+        <!-- Canon DSLR Mode Controls -->
         <LinearLayout
+            android:id="@+id/canonControls"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:orientation="vertical"
+            android:visibility="gone">
 
-            <Button
-                android:id="@+id/btnFar3"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="⏪ Far 3"
-                android:textSize="11sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#1E293B"
-                android:layout_marginEnd="4dp" />
+            <!-- Shutter Button & OBS Stream Button -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="6dp">
 
-            <Button
-                android:id="@+id/btnFar1"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="◀ Far 1"
-                android:textSize="11sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#1E293B"
-                android:layout_marginEnd="4dp" />
+                <Button
+                    android:id="@+id/btnShutter"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:text="📸 Take Photo (Shutter)"
+                    android:textSize="13sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#DC2626"
+                    android:layout_marginEnd="6dp" />
 
-            <Button
-                android:id="@+id/btnNear1"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="Near 1 ▶"
-                android:textSize="11sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#1E293B"
-                android:layout_marginEnd="4dp" />
+                <Button
+                    android:id="@+id/btnStreamObs"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:text="🚀 Stream Canon ➔ OBS"
+                    android:textSize="12sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#10B981" />
 
-            <Button
-                android:id="@+id/btnNear3"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="Near 3 ⏩"
-                android:textSize="11sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#1E293B" />
+            </LinearLayout>
+
+            <!-- Focus Drive Control Buttons -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnFar3"
+                    android:layout_width="0dp"
+                    android:layout_height="38dp"
+                    android:layout_weight="1"
+                    android:text="⏪ Far 3"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#1E293B"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btnFar1"
+                    android:layout_width="0dp"
+                    android:layout_height="38dp"
+                    android:layout_weight="1"
+                    android:text="◀ Far 1"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#1E293B"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btnNear1"
+                    android:layout_width="0dp"
+                    android:layout_height="38dp"
+                    android:layout_weight="1"
+                    android:text="Near 1 ▶"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#1E293B"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btnNear3"
+                    android:layout_width="0dp"
+                    android:layout_height="38dp"
+                    android:layout_weight="1"
+                    android:text="Near 3 ⏩"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#1E293B" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
