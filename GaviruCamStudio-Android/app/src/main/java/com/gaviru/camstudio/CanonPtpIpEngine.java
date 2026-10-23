@@ -607,6 +607,20 @@ public class CanonPtpIpEngine {
     }
 
     /**
+     * Cancel Auto Focus / Freeze Focus (OpCode: 0x902A).
+     */
+    public synchronized boolean cancelAutoFocus() {
+        if (!isConnected()) return false;
+        try {
+            sendOperationRequest(0x902A);
+            readOperationResponse();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
      * Drives Canon Lens Focus (EOS_DriveLens OpCode 0x9155).
      * Direction: 1 = Far, 2 = Near. Step: 1..3.
      */

@@ -62,7 +62,7 @@ public class MainActivity extends AppCompatActivity {
         CANON_DSLR
     }
 
-    private AppMode currentMode = AppMode.PHONE_CAM;
+    private AppMode currentMode = AppMode.CANON_DSLR;
     private boolean isPhoneBroadcasting = false;
     private boolean isFrontCamera = false;
     private String selectedResolution = "1080p";
@@ -101,11 +101,11 @@ public class MainActivity extends AppCompatActivity {
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         cameraIp = prefs.getString(KEY_CAMERA_IP, "192.168.1.1");
         roomName = prefs.getString(KEY_ROOM_NAME, "gaviru-cam-pro");
-        String savedMode = prefs.getString(KEY_MODE, AppMode.PHONE_CAM.name());
+        String savedMode = prefs.getString(KEY_MODE, AppMode.CANON_DSLR.name());
         try {
             currentMode = AppMode.valueOf(savedMode);
         } catch (Exception e) {
-            currentMode = AppMode.PHONE_CAM;
+            currentMode = AppMode.CANON_DSLR;
         }
 
         imgLiveView = findViewById(R.id.imgLiveView);
