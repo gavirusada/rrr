@@ -18,6 +18,10 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
 import android.net.wifi.WifiManager;
+import java.net.InetAddress;
+import java.net.Inet4Address;
+import java.net.NetworkInterface;
+import java.util.Enumeration;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
@@ -83,7 +87,7 @@ public class MainActivity extends AppCompatActivity {
 
     private SharedPreferences prefs;
     private String cameraIp = "192.168.1.1";
-    private String roomName = "gaviru-cam-pro";
+    private String roomName = "gaviru_cam_pro";
 
     private CanonPtpIpEngine canonEngine;
     private LocalHttpServer localServer;
@@ -100,7 +104,11 @@ public class MainActivity extends AppCompatActivity {
 
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         cameraIp = prefs.getString(KEY_CAMERA_IP, "192.168.1.1");
-        roomName = prefs.getString(KEY_ROOM_NAME, "gaviru-cam-pro");
+        roomName = prefs.getString(KEY_ROOM_NAME, "gaviru_cam_pro");
+        if (roomName == null || roomName.trim().isEmpty() || roomName.contains("-")) {
+            roomName = "gaviru_cam_pro";
+            prefs.edit().putString(KEY_ROOM_NAME, roomName).apply();
+        }
         String savedMode = prefs.getString(KEY_MODE, AppMode.CANON_DSLR.name());
         try {
             currentMode = AppMode.valueOf(savedMode);
@@ -249,10 +257,26 @@ public class MainActivity extends AppCompatActivity {
 
     private String getDeviceIpAddress() {
         try {
+            for (Enumeration<NetworkInterface> en = NetworkInterface.getNetworkInterfaces(); en.hasMoreElements();) {
+                NetworkInterface intf = en.nextElement();
+                for (Enumeration<InetAddress> enumIpAddr = intf.getInetAddresses(); enumIpAddr.hasMoreElements();) {
+                    InetAddress inetAddress = enumIpAddr.nextElement();
+                    if (!inetAddress.isLoopbackAddress() && inetAddress instanceof Inet4Address) {
+                        String ip = inetAddress.getHostAddress();
+                        if (ip != null && !ip.startsWith("127.")) {
+                            return ip;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        try {
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             if (wm != null) {
-                int ip = wm.getConnectionInfo().getIpAddress();
-                if (ip != 0) {
+                DhcpInfo dhcp = wm.getDhcpInfo();
+                if (dhcp != null && dhcp.ipAddress != 0) {
+                    int ip = dhcp.ipAddress;
                     return String.format("%d.%d.%d.%d",
                             (ip & 0xFF),
                             ((ip >> 8) & 0xFF),
@@ -261,26 +285,22 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         } catch (Exception ignored) {}
-        return "192.168.1.X";
+
+        return "192.168.1.2";
     }
 
     private void showObsLinkDialog(String obsLink) {
         String directLocalStream = "http://" + getDeviceIpAddress() + ":8787/stream";
         new AlertDialog.Builder(this)
-                .setTitle("🚀 Streaming to OBS Studio!")
-                .setMessage("Canon 4000D කැමරාව OBS Studio එකට stream කිරීමට පහත Link එක OBS Browser Source එකට ලබා දෙන්න:\n\n"
-                        + "🌐 VDO.Ninja Link (Cloud / Internet):\n" + obsLink + "\n\n"
-                        + "⚡ Local Wi-Fi Direct Link (0-Latency / No Internet):\n" + directLocalStream)
+                .setTitle("🚀 OBS Studio Links")
+                .setMessage("OBS Studio හි Browser Source එකට මෙම Links වලින් එකක් ලබා දෙන්න:\n\n"
+                        + "1️⃣ VDO.Ninja (Internet / Cloud Push):\n" + obsLink + "\n\n"
+                        + "2️⃣ Local Wi-Fi (No Internet / 0-Latency):\n" + directLocalStream)
                 .setPositiveButton("📋 Copy VDO.Ninja Link", (dialog, which) -> {
-                    copyObsLinkToClipboard();
+                    copyLinkToClipboard("VDO.Ninja Link", obsLink);
                 })
                 .setNeutralButton("📋 Copy Local Link", (dialog, which) -> {
-                    ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                    ClipData clip = ClipData.newPlainText("OBS Local Stream", directLocalStream);
-                    if (clipboard != null) {
-                        clipboard.setPrimaryClip(clip);
-                        Toast.makeText(this, "Local OBS Link Copied!", Toast.LENGTH_SHORT).show();
-                    }
+                    copyLinkToClipboard("Local Wi-Fi Link", directLocalStream);
                 })
                 .setNegativeButton("OK", null)
                 .show();
@@ -288,11 +308,15 @@ public class MainActivity extends AppCompatActivity {
 
     private void copyObsLinkToClipboard() {
         String obsLink = "https://vdo.ninja/?view=" + roomName + "&cleanoutput";
+        copyLinkToClipboard("OBS Link", obsLink);
+    }
+
+    private void copyLinkToClipboard(String label, String url) {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        ClipData clip = ClipData.newPlainText("OBS Link", obsLink);
+        ClipData clip = ClipData.newPlainText(label, url);
         if (clipboard != null) {
             clipboard.setPrimaryClip(clip);
-            Toast.makeText(this, "OBS Link Copied!", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Copied: " + url, Toast.LENGTH_LONG).show();
         }
     }
 
@@ -590,7 +614,7 @@ public class MainActivity extends AppCompatActivity {
         if (isBroadcastingToObs) {
             btnStreamObs.setText("⏹ Stop Canon OBS");
             btnStreamObs.setBackgroundTintList(ColorStateList.valueOf(0xFFF59E0B));
-            String vdoPushUrl = "https://vdo.ninja/?push=" + roomName + "&webcam&autostart&noaudio&videobitrate=8000&fps=30&cleanoutput";
+            String vdoPushUrl = "https://vdo.ninja/?push=" + roomName + "&webcam&autostart&noaudio&videobitrate=6000&fps=30";
             vdoWebView.loadUrl(vdoPushUrl);
 
             // Automatically switch to VDO screen so user can confirm connection and click start if needed
