@@ -46,7 +46,7 @@ jobs:
     - name: Prepare Output Directory
       run: |
         mkdir -p build-output
-        cp GaviruCamStudio-Android/app/build/outputs/apk/debug/app-debug.apk build-output/GaviruCamStudio-v1.3.0.apk
+        cp GaviruCamStudio-Android/app/build/outputs/apk/debug/app-debug.apk build-output/GaviruCamStudio-v1.4.0.apk
         cp GaviruCamStudio-Android/app/build/outputs/apk/debug/app-debug.apk build-output/GaviruCamStudio.apk
         ls -lh build-output/
 
@@ -54,25 +54,25 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: GaviruCamStudio-APK
-        path: build-output/GaviruCamStudio-v1.3.0.apk
+        path: build-output/GaviruCamStudio-v1.4.0.apk
         retention-days: 30
 
     - name: Create GitHub Release with APK
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       with:
-        tag_name: v1.3.0
-        name: "Gaviru Cam Studio Android App v1.3.0"
+        tag_name: v1.4.0
+        name: "Gaviru Cam Studio Android App v1.4.0"
         body: |
-          ### 🚀 Gaviru Cam Studio Android App v1.3.0 (Canon 4000D Wi-Fi Live View & Shutter)
-          - **📷 Canon 4000D Smartphone Mode Optimized**: Configured for Canon 4000D/Rebel T100 "Connect to smartphone" Wi-Fi mode.
-          - **🪞 Physical Mirror & Shutter Opening**: Automatically sets `0xD1B0` (Live View Output Mode) to 3/2, lifting the mirror and opening the shutter curtains.
-          - **📸 Two-Stage Mechanical Shutter Actuation**: Mimics genuine physical shutter half-press (focus lock) and full-press (actuation) with direct save to SD card (`0xD11C`).
-          - **🎬 OBS Studio Instant Streaming**: 1-click Browser Source link for VDO.Ninja streaming into OBS Studio.
+          ### 🚀 Gaviru Cam Studio Android App v1.4.0 (Canon 4000D PC-Protocol Match)
+          - **📷 Exact PC Live View Bootstrap Ported**: Implements `SetPcConnectMode` (0x911A), `EVF_OUTPUT_DEVICE` (0xD1B0 = 8 WIFI_PC), and `EVF_MODE` (0xD1B1 = 1).
+          - **🪞 Physical Mirror Raise & Live View**: Physically lifts Canon 4000D mirror, opens shutter, and streams live view directly to phone screen.
+          - **📸 Shutter Release (0x910F & Two-Stage)**: Captures photos remotely with mirror actuation.
+          - **🎬 VDO.Ninja / OBS Integration**: Real-time WebRTC push to OBS Studio via VDO.Ninja.
         draft: false
         prerelease: false
         files: |
-          build-output/GaviruCamStudio-v1.3.0.apk
+          build-output/GaviruCamStudio-v1.4.0.apk
           build-output/GaviruCamStudio.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

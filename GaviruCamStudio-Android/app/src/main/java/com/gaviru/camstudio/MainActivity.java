@@ -601,7 +601,7 @@ public class MainActivity extends AppCompatActivity {
             "  function fetchFrame() {" +
             "    if (!busy) {" +
             "      busy = true;" +
-            "      img.src = 'http://127.0.0.1:8080/live.jpg?t=' + Date.now();" +
+            "      img.src = 'http://127.0.0.1:8787/live.jpg?t=' + Date.now();" +
             "    }" +
             "  }" +
             "  img.onload = () => {" +

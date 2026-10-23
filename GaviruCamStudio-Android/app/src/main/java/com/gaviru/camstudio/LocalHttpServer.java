@@ -95,7 +95,7 @@ public class LocalHttpServer {
             } else if (path.startsWith("/stream") || path.startsWith("/live.mjpg")) {
                 client.setSoTimeout(0); // Infinite timeout for streaming
                 serveMjpegStream(out);
-            } else if (path.startsWith("/snapshot.jpg")) {
+            } else if (path.startsWith("/snapshot.jpg") || path.startsWith("/live.jpg")) {
                 serveSnapshot(out);
             } else if (path.startsWith("/api/status")) {
                 serveApiStatus(out);
