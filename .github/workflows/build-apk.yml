@@ -46,7 +46,7 @@ jobs:
     - name: Prepare Output Directory
       run: |
         mkdir -p build-output
-        cp GaviruCamStudio-Android/app/build/outputs/apk/debug/app-debug.apk build-output/GaviruCamStudio-v1.5.0.apk
+        cp GaviruCamStudio-Android/app/build/outputs/apk/debug/app-debug.apk build-output/GaviruCamStudio-v1.6.0.apk
         cp GaviruCamStudio-Android/app/build/outputs/apk/debug/app-debug.apk build-output/GaviruCamStudio.apk
         ls -lh build-output/
 
@@ -54,24 +54,25 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: GaviruCamStudio-APK
-        path: build-output/GaviruCamStudio-v1.5.0.apk
+        path: build-output/GaviruCamStudio-v1.6.0.apk
         retention-days: 30
 
     - name: Create GitHub Release with APK
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       with:
-        tag_name: v1.5.0
-        name: "Gaviru Cam Studio Android App v1.5.0"
+        tag_name: v1.6.0
+        name: "Gaviru Cam Studio Android App v1.6.0"
         body: |
-          ### 🚀 Gaviru Cam Studio Android App v1.5.0 (VDO.Ninja OBS Streaming & Direct Local Wi-Fi Stream)
-          - **🎬 VDO.Ninja Native WebRTC Stream**: High-speed, zero-taint In-Memory Base64 bridge with mock `enumerateDevices` and `getUserMedia` for 100% reliable OBS streaming.
+          ### 🚀 Gaviru Cam Studio Android App v1.6.0 (VDO.Ninja Live Monitor & Fresh Stream Pipeline)
+          - **🌐 Live VDO.Ninja Screen Toggle**: Instantly view and touch the real VDO.Ninja broadcast screen to verify connection, see live indicators, and tap prompts.
+          - **🎬 Fresh MediaStream Track Generator**: Fixes stopped-track bug by generating fresh WebRTC tracks on every `getUserMedia` call.
           - **⚡ Direct Local Wi-Fi Stream**: Accessible on `http://<phone-ip>:8787/stream` directly into OBS Media / Browser source with 0 latency.
-          - **📷 Canon 4000D Wi-Fi Live View**: Mirror raise, shutter opening, and live preview rendering on screen.
+          - **📷 Canon 4000D Wi-Fi Live View & Shutter**: Full remote control and viewfinder.
         draft: false
         prerelease: false
         files: |
-          build-output/GaviruCamStudio-v1.5.0.apk
+          build-output/GaviruCamStudio-v1.6.0.apk
           build-output/GaviruCamStudio.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

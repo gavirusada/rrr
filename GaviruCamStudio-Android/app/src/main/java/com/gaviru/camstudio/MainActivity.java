@@ -488,8 +488,21 @@ public class MainActivity extends AppCompatActivity {
         // Canon Mode Controls
         Button btnShutter = findViewById(R.id.btnShutter);
         Button btnStreamObs = findViewById(R.id.btnStreamObs);
+        Button btnToggleVdoView = findViewById(R.id.btnToggleVdoView);
+        Button btnCopyCanonObsLink = findViewById(R.id.btnCopyCanonObsLink);
         Button btnSettings = findViewById(R.id.btnSettings);
         Button btnGuide = findViewById(R.id.btnGuide);
+
+        if (btnToggleVdoView != null) {
+            btnToggleVdoView.setOnClickListener(v -> toggleVdoScreenView(btnToggleVdoView));
+        }
+
+        if (btnCopyCanonObsLink != null) {
+            btnCopyCanonObsLink.setOnClickListener(v -> {
+                String obsLink = "https://vdo.ninja/?view=" + roomName + "&cleanoutput";
+                showObsLinkDialog(obsLink);
+            });
+        }
 
         Button btnFar3 = findViewById(R.id.btnFar3);
         Button btnFar1 = findViewById(R.id.btnFar1);
@@ -555,6 +568,23 @@ public class MainActivity extends AppCompatActivity {
         focusBox.postDelayed(() -> focusBox.setVisibility(View.GONE), 1600);
     }
 
+    private boolean isViewingVdoScreen = false;
+
+    private void toggleVdoScreenView(Button btn) {
+        isViewingVdoScreen = !isViewingVdoScreen;
+        if (isViewingVdoScreen) {
+            imgLiveView.setVisibility(View.GONE);
+            btn.setText("📷 Show Canon View");
+            btn.setBackgroundTintList(ColorStateList.valueOf(0xFF10B981));
+            Toast.makeText(this, "Showing VDO.Ninja Screen", Toast.LENGTH_SHORT).show();
+        } else {
+            imgLiveView.setVisibility(View.VISIBLE);
+            btn.setText("🌐 Show VDO.Ninja Screen");
+            btn.setBackgroundTintList(ColorStateList.valueOf(0xFF2563EB));
+            Toast.makeText(this, "Showing Canon Viewfinder", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private void toggleCanonObsStreaming(Button btnStreamObs) {
         isBroadcastingToObs = !isBroadcastingToObs;
         if (isBroadcastingToObs) {
@@ -563,12 +593,28 @@ public class MainActivity extends AppCompatActivity {
             String vdoPushUrl = "https://vdo.ninja/?push=" + roomName + "&webcam&autostart&noaudio&videobitrate=8000&fps=30&cleanoutput";
             vdoWebView.loadUrl(vdoPushUrl);
 
+            // Automatically switch to VDO screen so user can confirm connection and click start if needed
+            isViewingVdoScreen = true;
+            imgLiveView.setVisibility(View.GONE);
+            Button btnToggle = findViewById(R.id.btnToggleVdoView);
+            if (btnToggle != null) {
+                btnToggle.setText("📷 Show Canon View");
+                btnToggle.setBackgroundTintList(ColorStateList.valueOf(0xFF10B981));
+            }
+
             String obsLink = "https://vdo.ninja/?view=" + roomName + "&cleanoutput";
             showObsLinkDialog(obsLink);
         } else {
             btnStreamObs.setText("🚀 Stream Canon ➔ OBS");
             btnStreamObs.setBackgroundTintList(ColorStateList.valueOf(0xFF10B981));
             vdoWebView.loadUrl("about:blank");
+            isViewingVdoScreen = false;
+            imgLiveView.setVisibility(View.VISIBLE);
+            Button btnToggle = findViewById(R.id.btnToggleVdoView);
+            if (btnToggle != null) {
+                btnToggle.setText("🌐 Show VDO.Ninja Screen");
+                btnToggle.setBackgroundTintList(ColorStateList.valueOf(0xFF2563EB));
+            }
             Toast.makeText(this, "OBS Broadcast Stopped", Toast.LENGTH_SHORT).show();
         }
     }
@@ -615,9 +661,30 @@ public class MainActivity extends AppCompatActivity {
                     injectCanonWebcamShim(view);
                 }
             }
+
+            @Override
+            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                Log.e("VDO-Error", "Error " + errorCode + ": " + description);
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "⚠️ VDO.Ninja Error: " + description + "\n(Mobile Data On කර ඇත්දැයි බලන්න)", Toast.LENGTH_LONG).show();
+                });
+            }
         });
 
         vdoWebView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onConsoleMessage(android.webkit.ConsoleMessage consoleMessage) {
+                Log.d("VDO-JS", consoleMessage.message() + " [" + consoleMessage.sourceId() + ":" + consoleMessage.lineNumber() + "]");
+                return true;
+            }
+
+            @Override
+            public void onProgressChanged(WebView view, int newProgress) {
+                if (newProgress > 30 && currentMode == AppMode.CANON_DSLR) {
+                    injectCanonWebcamShim(view);
+                }
+            }
+
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 runOnUiThread(() -> {
@@ -639,9 +706,11 @@ public class MainActivity extends AppCompatActivity {
             "  const ctx = canvas.getContext('2d');" +
             "  ctx.fillStyle = '#0a0e17';" +
             "  ctx.fillRect(0, 0, canvas.width, canvas.height);" +
+            "  ctx.fillStyle = '#10b981';" +
+            "  ctx.font = 'bold 36px sans-serif';" +
+            "  ctx.fillText('📷 Gaviru Cam — Canon 4000D Live', 60, 120);" +
             "  const img = new Image();" +
             "  let busy = false;" +
-            "  let lastB64 = '';" +
             "  img.onload = function() {" +
             "    try { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); } catch(e) {}" +
             "    busy = false;" +
@@ -651,31 +720,31 @@ public class MainActivity extends AppCompatActivity {
             "    if (!busy && window.CanonBridge) {" +
             "      try {" +
             "        const b64 = window.CanonBridge.getLatestFrameBase64();" +
-            "        if (b64 && b64.length > 100 && b64 !== lastB64) {" +
+            "        if (b64 && b64.length > 50) {" +
             "          busy = true;" +
-            "          lastB64 = b64;" +
             "          img.src = 'data:image/jpeg;base64,' + b64;" +
             "        }" +
             "      } catch(e) {}" +
             "    }" +
             "  }" +
-            "  setInterval(update, 28);" +
-            "  const fps = 30;" +
-            "  const videoStream = canvas.captureStream(fps);" +
-            "  let audioTracks = [];" +
-            "  try {" +
-            "    const AC = window.AudioContext || window.webkitAudioContext;" +
-            "    if (AC) {" +
-            "      const actx = new AC();" +
-            "      const osc = actx.createOscillator();" +
-            "      const dst = actx.createMediaStreamDestination();" +
-            "      const gain = actx.createGain();" +
-            "      gain.gain.value = 0;" +
-            "      osc.connect(gain); gain.connect(dst); osc.start();" +
-            "      audioTracks = dst.stream.getAudioTracks();" +
-            "    }" +
-            "  } catch(e) {}" +
-            "  const combinedStream = new MediaStream([...videoStream.getVideoTracks(), ...audioTracks]);" +
+            "  setInterval(update, 25);" +
+            "  function createStream() {" +
+            "    const vs = canvas.captureStream(30);" +
+            "    let audioTracks = [];" +
+            "    try {" +
+            "      const AC = window.AudioContext || window.webkitAudioContext;" +
+            "      if (AC) {" +
+            "        const actx = new AC();" +
+            "        const osc = actx.createOscillator();" +
+            "        const dst = actx.createMediaStreamDestination();" +
+            "        const gain = actx.createGain();" +
+            "        gain.gain.value = 0;" +
+            "        osc.connect(gain); gain.connect(dst); osc.start();" +
+            "        audioTracks = dst.stream.getAudioTracks();" +
+            "      }" +
+            "    } catch(e) {}" +
+            "    return new MediaStream([...vs.getVideoTracks(), ...audioTracks]);" +
+            "  }" +
             "  if (!navigator.mediaDevices) navigator.mediaDevices = {};" +
             "  navigator.mediaDevices.enumerateDevices = function() {" +
             "    return Promise.resolve([{" +
@@ -687,9 +756,24 @@ public class MainActivity extends AppCompatActivity {
             "    }]);" +
             "  };" +
             "  navigator.mediaDevices.getUserMedia = function(constraints) {" +
-            "    return Promise.resolve(combinedStream);" +
+            "    return Promise.resolve(createStream());" +
             "  };" +
-            "  console.log('Canon Virtual Webcam Shim Active');" +
+            "  navigator.mediaDevices.getDisplayMedia = function(constraints) {" +
+            "    return Promise.resolve(createStream());" +
+            "  };" +
+            "  navigator.getUserMedia = function(c, s, e) { if (s) s(createStream()); };" +
+            "  navigator.webkitGetUserMedia = navigator.getUserMedia;" +
+            "  setInterval(function() {" +
+            "    const btns = document.querySelectorAll('button, .action-button, [role=\"button\"]');" +
+            "    for (let i = 0; i < btns.length; i++) {" +
+            "      const t = (btns[i].innerText || btns[i].textContent || '').trim().toLowerCase();" +
+            "      if (t === 'start' || t === 'join room' || t.includes('start stream') || t.includes('go live')) {" +
+            "        btns[i].click();" +
+            "        break;" +
+            "      }" +
+            "    }" +
+            "  }, 500);" +
+            "  console.log('✓ Canon Virtual Webcam Shim successfully armed');" +
             "})();";
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
