@@ -121,12 +121,20 @@
         android:layout_above="@+id/bottomControls"
         android:background="#000000">
 
-        <!-- Native Hardware-Accelerated 0-Latency Canon Live View Viewport -->
+        <!-- Interactive Fullscreen WebView for VDO.Ninja Streaming (Kept VISIBLE for 30FPS background WebRTC) -->
+        <WebView
+            android:id="@+id/vdoWebView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="visible" />
+
+        <!-- Native Hardware-Accelerated 0-Latency Canon Live View Viewport (Sits on top in Canon Mode) -->
         <ImageView
             android:id="@+id/imgLiveView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:scaleType="fitCenter"
+            android:background="#000000"
             android:visibility="gone" />
 
         <!-- Tap-To-Focus Indicator Box -->
@@ -165,13 +173,6 @@
                 android:paddingEnd="16dp" />
 
         </LinearLayout>
-
-        <!-- Interactive Fullscreen WebView for Phone Camera VDO.Ninja Streaming -->
-        <WebView
-            android:id="@+id/vdoWebView"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="visible" />
 
     </FrameLayout>
 

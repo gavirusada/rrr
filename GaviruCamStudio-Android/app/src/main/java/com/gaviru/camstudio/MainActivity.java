@@ -180,7 +180,7 @@ public class MainActivity extends AppCompatActivity {
 
         imgLiveView.setVisibility(View.VISIBLE);
         waitingOverlay.setVisibility(View.VISIBLE);
-        vdoWebView.setVisibility(View.INVISIBLE);
+        vdoWebView.setVisibility(View.VISIBLE); // Kept VISIBLE behind imgLiveView so WebRTC never sleeps
 
         // If phone was streaming, reset url
         if (isPhoneBroadcasting) {
@@ -247,12 +247,40 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private String getDeviceIpAddress() {
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm != null) {
+                int ip = wm.getConnectionInfo().getIpAddress();
+                if (ip != 0) {
+                    return String.format("%d.%d.%d.%d",
+                            (ip & 0xFF),
+                            ((ip >> 8) & 0xFF),
+                            ((ip >> 16) & 0xFF),
+                            ((ip >> 24) & 0xFF));
+                }
+            }
+        } catch (Exception ignored) {}
+        return "192.168.1.X";
+    }
+
     private void showObsLinkDialog(String obsLink) {
+        String directLocalStream = "http://" + getDeviceIpAddress() + ":8787/stream";
         new AlertDialog.Builder(this)
-                .setTitle("🚀 Phone Camera Streaming to OBS!")
-                .setMessage("Phone එකේ Camera එක VDO.Ninja හරහා සජීවීව OBS එකට stream වෙමින් පවතී!\n\nOBS Studio හි Browser Source එකට මෙම Link එක ලබා දෙන්න:\n\n" + obsLink)
-                .setPositiveButton("📋 Copy OBS Link", (dialog, which) -> {
+                .setTitle("🚀 Streaming to OBS Studio!")
+                .setMessage("Canon 4000D කැමරාව OBS Studio එකට stream කිරීමට පහත Link එක OBS Browser Source එකට ලබා දෙන්න:\n\n"
+                        + "🌐 VDO.Ninja Link (Cloud / Internet):\n" + obsLink + "\n\n"
+                        + "⚡ Local Wi-Fi Direct Link (0-Latency / No Internet):\n" + directLocalStream)
+                .setPositiveButton("📋 Copy VDO.Ninja Link", (dialog, which) -> {
                     copyObsLinkToClipboard();
+                })
+                .setNeutralButton("📋 Copy Local Link", (dialog, which) -> {
+                    ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    ClipData clip = ClipData.newPlainText("OBS Local Stream", directLocalStream);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(clip);
+                        Toast.makeText(this, "Local OBS Link Copied!", Toast.LENGTH_SHORT).show();
+                    }
                 })
                 .setNegativeButton("OK", null)
                 .show();
@@ -532,7 +560,7 @@ public class MainActivity extends AppCompatActivity {
         if (isBroadcastingToObs) {
             btnStreamObs.setText("⏹ Stop Canon OBS");
             btnStreamObs.setBackgroundTintList(ColorStateList.valueOf(0xFFF59E0B));
-            String vdoPushUrl = "https://vdo.ninja/?push=" + roomName + "&webcam&autostart&videobitrate=15000&scale=100";
+            String vdoPushUrl = "https://vdo.ninja/?push=" + roomName + "&webcam&autostart&noaudio&videobitrate=8000&fps=30&cleanoutput";
             vdoWebView.loadUrl(vdoPushUrl);
 
             String obsLink = "https://vdo.ninja/?view=" + roomName + "&cleanoutput";
@@ -554,22 +582,36 @@ public class MainActivity extends AppCompatActivity {
         ws.setAllowContentAccess(true);
         ws.setUseWideViewPort(true);
         ws.setLoadWithOverviewMode(true);
+        ws.setDatabaseEnabled(true);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
 
+        vdoWebView.addJavascriptInterface(new Object() {
+            @android.webkit.JavascriptInterface
+            public String getLatestFrameBase64() {
+                if (canonEngine != null) {
+                    byte[] frame = canonEngine.getLatestJpegFrame();
+                    if (frame != null && frame.length > 50) {
+                        return android.util.Base64.encodeToString(frame, android.util.Base64.NO_WRAP);
+                    }
+                }
+                return "";
+            }
+        }, "CanonBridge");
+
         vdoWebView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                if (currentMode == AppMode.CANON_DSLR) {
+                if (currentMode == AppMode.CANON_DSLR && url != null && !url.equals("about:blank")) {
                     injectCanonWebcamShim(view);
                 }
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                if (currentMode == AppMode.CANON_DSLR) {
+                if (currentMode == AppMode.CANON_DSLR && url != null && !url.equals("about:blank")) {
                     injectCanonWebcamShim(view);
                 }
             }
@@ -590,31 +632,64 @@ public class MainActivity extends AppCompatActivity {
     private void injectCanonWebcamShim(WebView view) {
         String js =
             "(function() {" +
-            "  if (window.__canonShimReady) return;" +
-            "  window.__canonShimReady = true;" +
+            "  if (window.__canonShimInjected) return;" +
+            "  window.__canonShimInjected = true;" +
             "  const canvas = document.createElement('canvas');" +
             "  canvas.width = 1280; canvas.height = 720;" +
             "  const ctx = canvas.getContext('2d');" +
+            "  ctx.fillStyle = '#0a0e17';" +
+            "  ctx.fillRect(0, 0, canvas.width, canvas.height);" +
             "  const img = new Image();" +
-            "  img.crossOrigin = 'anonymous';" +
             "  let busy = false;" +
-            "  function fetchFrame() {" +
-            "    if (!busy) {" +
-            "      busy = true;" +
-            "      img.src = 'http://127.0.0.1:8787/live.jpg?t=' + Date.now();" +
-            "    }" +
-            "  }" +
-            "  img.onload = () => {" +
-            "    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);" +
+            "  let lastB64 = '';" +
+            "  img.onload = function() {" +
+            "    try { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); } catch(e) {}" +
             "    busy = false;" +
             "  };" +
-            "  img.onerror = () => { busy = false; };" +
-            "  setInterval(fetchFrame, 33);" +
+            "  img.onerror = function() { busy = false; };" +
+            "  function update() {" +
+            "    if (!busy && window.CanonBridge) {" +
+            "      try {" +
+            "        const b64 = window.CanonBridge.getLatestFrameBase64();" +
+            "        if (b64 && b64.length > 100 && b64 !== lastB64) {" +
+            "          busy = true;" +
+            "          lastB64 = b64;" +
+            "          img.src = 'data:image/jpeg;base64,' + b64;" +
+            "        }" +
+            "      } catch(e) {}" +
+            "    }" +
+            "  }" +
+            "  setInterval(update, 28);" +
             "  const fps = 30;" +
-            "  const stream = canvas.captureStream(fps);" +
-            "  navigator.mediaDevices.getUserMedia = function(constraints) {" +
-            "    return Promise.resolve(stream);" +
+            "  const videoStream = canvas.captureStream(fps);" +
+            "  let audioTracks = [];" +
+            "  try {" +
+            "    const AC = window.AudioContext || window.webkitAudioContext;" +
+            "    if (AC) {" +
+            "      const actx = new AC();" +
+            "      const osc = actx.createOscillator();" +
+            "      const dst = actx.createMediaStreamDestination();" +
+            "      const gain = actx.createGain();" +
+            "      gain.gain.value = 0;" +
+            "      osc.connect(gain); gain.connect(dst); osc.start();" +
+            "      audioTracks = dst.stream.getAudioTracks();" +
+            "    }" +
+            "  } catch(e) {}" +
+            "  const combinedStream = new MediaStream([...videoStream.getVideoTracks(), ...audioTracks]);" +
+            "  if (!navigator.mediaDevices) navigator.mediaDevices = {};" +
+            "  navigator.mediaDevices.enumerateDevices = function() {" +
+            "    return Promise.resolve([{" +
+            "      deviceId: 'canon-eos-4000d'," +
+            "      kind: 'videoinput'," +
+            "      label: 'Canon EOS 4000D DSLR (Gaviru Cam)'," +
+            "      groupId: 'canon-group'," +
+            "      toJSON: function() { return this; }" +
+            "    }]);" +
             "  };" +
+            "  navigator.mediaDevices.getUserMedia = function(constraints) {" +
+            "    return Promise.resolve(combinedStream);" +
+            "  };" +
+            "  console.log('Canon Virtual Webcam Shim Active');" +
             "})();";
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {

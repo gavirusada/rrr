@@ -45,8 +45,8 @@ public class LocalHttpServer {
 
         new Thread(() -> {
             try {
-                serverSocket = new ServerSocket(port, 50, InetAddress.getByName("127.0.0.1"));
-                Log.i(TAG, "Local Android Server started on http://127.0.0.1:" + port);
+                serverSocket = new ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"));
+                Log.i(TAG, "Local Android Server started on port " + port);
 
                 while (isRunning.get()) {
                     Socket client = serverSocket.accept();
