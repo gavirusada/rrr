@@ -14,7 +14,7 @@ export const DEFAULT_PERSISTENT_CONFIG: PersistentCameraConfig = {
   cameraIp: "192.168.1.145",
   cameraPort: 15740,
   listenHost: "0.0.0.0",
-  listenPort: 8080,
+  listenPort: 8787,
   autoDiscover: true
 };
 

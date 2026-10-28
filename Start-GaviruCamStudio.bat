@@ -30,15 +30,15 @@ if %ERRORLEVEL% NEQ 0 (
 :: 2. Run the compiled standalone executable if present
 if exist "%~dp0GaviruCamStudio.exe" (
     echo [OK] Starting GaviruCamStudio.exe...
-    "%~dp0GaviruCamStudio.exe"
+    "%~dp0GaviruCamStudio.exe" %*
     exit /b %ERRORLEVEL%
 )
 
 :: 3. Fallback to Bun or Node/NPX if running from source folder
 where bun >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
-    bun src/main.ts
+    bun src/main.ts %*
     exit /b %ERRORLEVEL%
 )
 
-npx --yes tsx src/main.ts
+npx --yes tsx src/main.ts %*

@@ -1705,6 +1705,10 @@ export function createStudioControlPage(): string {
       </div>
       <span class="status-pill" id="connectionBadge">LIVE STREAMING</span>
       <span class="status-pill" id="queueBadge" style="background:rgba(59,130,246,0.15);color:#93c5fd;border-color:rgba(59,130,246,0.4);">QUEUE: 0</span>
+      <button id="btnTopCameraIp" onclick="focusCameraIpInput()" style="display:inline-flex; align-items:center; gap:6px; background:rgba(59,130,246,0.18); border:1px solid rgba(59,130,246,0.5); color:#93c5fd; font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; cursor:pointer;" title="Click to View or Change Camera Wi-Fi IP Address">
+        <span>📡 Cam IP:</span>
+        <span id="topCameraIpDisplay">192.168.1.145</span>
+      </button>
     </div>
 
     <div class="action-bar">
@@ -1956,9 +1960,55 @@ export function createStudioControlPage(): string {
     <aside class="sidebar">
       <div class="tab-bar">
         <button class="tab-btn active" onclick="filterStudioTab('all', this)">All Panels</button>
+        <button class="tab-btn" data-tab-name="connection" onclick="filterStudioTab('connection', this)">📡 Cam IP</button>
         <button class="tab-btn" onclick="filterStudioTab('focus', this)">🎯 Focus & LCD</button>
         <button class="tab-btn" onclick="filterStudioTab('exposure', this)">☀️ Exposure</button>
         <button class="tab-btn" onclick="filterStudioTab('remote', this)">📡 Stream</button>
+      </div>
+
+      <!-- 0. Canon Camera Wi-Fi IP & Connection Settings -->
+      <div class="studio-section" data-tab="connection">
+        <div class="section-header" onclick="toggleSection(this)">
+          <span style="display:flex; align-items:center; gap:8px;">
+            <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#10b981;" id="secIpDot"></span>
+            <strong>📡 Canon Camera Wi-Fi IP Settings</strong>
+          </span>
+          <span>▾</span>
+        </div>
+        <div class="section-body">
+          <div class="tip-banner" style="margin-bottom:10px; font-size:11.5px; background:rgba(59,130,246,0.12); border-color:rgba(59,130,246,0.35); color:#93c5fd;">
+            💡 <strong>Canon 4000D Wi-Fi සම්බන්ධතාවය:</strong><br>
+            කැමරාවේ Wi-Fi On කර PC එකට හෝ Router එකට Connect කළ විට ලැබෙන IP ලිපිනය මෙහි ඇතුළත් කර <strong>Connect IP</strong> ඔබන්න.
+          </div>
+
+          <div class="control-row">
+            <div class="control-label">
+              <span>Target Camera IP Address</span>
+              <span class="val" id="ipConnectionStatus" style="color:#34d399; font-weight:700;">Ready</span>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="inputTargetCameraIp" placeholder="e.g. 192.168.1.145 or 192.168.1.2" value="192.168.1.145" style="flex:1; font-family:monospace; font-size:13px; font-weight:700; background:#0b0f19; border:1.5px solid #3b82f6; color:#f8fafc; padding:8px 12px; border-radius:6px;">
+              <button id="btnApplyCameraIp" onclick="applyCustomCameraIp()" style="background:linear-gradient(135deg, #2563eb, #1d4ed8); color:#fff; font-weight:800; border:none; padding:8px 14px; border-radius:6px; cursor:pointer;" title="Save IP & Reconnect PTP/IP Session">
+                🔗 Connect IP
+              </button>
+            </div>
+          </div>
+
+          <!-- Auto Discover & Quick Preset IPs -->
+          <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+            <button id="btnDiscoverCamera" onclick="discoverCameraOnWifi()" style="flex:1; min-width:140px; background:rgba(245,158,11,0.14); border:1px solid #f59e0b; color:#fde68a; font-weight:700; padding:7px 10px; border-radius:6px; cursor:pointer;" title="Scan local network for Canon camera using SSDP">
+              🔍 Auto-Scan Wi-Fi (SSDP)
+            </button>
+            <button onclick="quickSetCameraIp('192.168.1.2')" style="background:#1e293b; border:1px solid #475569; color:#cbd5e1; font-size:11px; padding:7px 10px; border-radius:6px; cursor:pointer;" title="Direct Camera Hotspot / AP Mode IP">
+              📷 192.168.1.2 (Cam AP)
+            </button>
+            <button onclick="quickSetCameraIp('192.168.1.145')" style="background:#1e293b; border:1px solid #475569; color:#cbd5e1; font-size:11px; padding:7px 10px; border-radius:6px; cursor:pointer;" title="Router Wi-Fi Default IP">
+              🏠 192.168.1.145
+            </button>
+          </div>
+
+          <div id="ipScanResult" style="display:none; margin-top:8px; font-size:11.5px; padding:7px 10px; border-radius:6px; background:#090d16; border:1px solid #334155; line-height:1.45;"></div>
+        </div>
       </div>
 
       <!-- 1. Focus, Lens Motor Drive & Camera LCD Display Control -->
@@ -2842,6 +2892,31 @@ export function createStudioControlPage(): string {
 
         document.getElementById('cameraName').textContent = cam.cameraName || 'Gaviru E400D Cam';
         document.getElementById('queueBadge').textContent = 'QUEUE: ' + (cam.queueDepth ?? 0);
+
+        if (data.currentCameraIp) {
+          const topIp = document.getElementById('topCameraIpDisplay');
+          if (topIp && topIp.textContent !== data.currentCameraIp) {
+            topIp.textContent = data.currentCameraIp;
+          }
+          const inp = document.getElementById('inputTargetCameraIp');
+          if (inp && document.activeElement !== inp && !inp.value) {
+            inp.value = data.currentCameraIp;
+          }
+        }
+
+        const ipDot = document.getElementById('secIpDot');
+        const ipStatus = document.getElementById('ipConnectionStatus');
+        if (ipStatus) {
+          if (cam.connected) {
+            ipStatus.textContent = '🟢 Connected (' + (data.currentCameraIp || '') + ')';
+            ipStatus.style.color = '#34d399';
+            if (ipDot) ipDot.style.background = '#10b981';
+          } else {
+            ipStatus.textContent = '🟡 Reconnecting (' + (data.currentCameraIp || '') + ')...';
+            ipStatus.style.color = '#fbbf24';
+            if (ipDot) ipDot.style.background = '#f59e0b';
+          }
+        }
 
         const badge = document.getElementById('connectionBadge');
         if (!cam.evfActive) {
@@ -3744,7 +3819,7 @@ export function createStudioControlPage(): string {
 
     function filterStudioTab(tab, btn) {
       document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
+      if (btn) btn.classList.add('active');
       document.querySelectorAll('.studio-section').forEach((sec) => {
         if (tab === 'all' || sec.getAttribute('data-tab') === tab) {
           sec.style.display = 'block';
@@ -3753,6 +3828,133 @@ export function createStudioControlPage(): string {
         }
       });
     }
+
+    function focusCameraIpInput() {
+      const connBtn = document.querySelector('.tab-btn[data-tab-name="connection"]');
+      if (connBtn) {
+        filterStudioTab('connection', connBtn);
+      } else {
+        const allBtn = document.querySelector('.tab-btn');
+        if (allBtn) filterStudioTab('all', allBtn);
+      }
+      const inp = document.getElementById('inputTargetCameraIp');
+      if (inp) {
+        inp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        inp.focus();
+        inp.select();
+      }
+    }
+
+    function quickSetCameraIp(ip) {
+      const inp = document.getElementById('inputTargetCameraIp');
+      if (inp) {
+        inp.value = ip;
+        applyCustomCameraIp();
+      }
+    }
+
+    async function applyCustomCameraIp() {
+      const inp = document.getElementById('inputTargetCameraIp');
+      const ip = (inp ? inp.value : '').trim();
+      if (!ip) {
+        alert('කරුණාකර නිවැරදි IP ලිපිනයක් ඇතුළත් කරන්න (Please enter a valid IP address)');
+        return;
+      }
+      const btn = document.getElementById('btnApplyCameraIp');
+      const st = document.getElementById('ipConnectionStatus');
+      const origText = btn ? btn.textContent : '';
+      if (btn) {
+        btn.textContent = '⏳ Connecting...';
+        btn.disabled = true;
+      }
+      if (st) {
+        st.textContent = 'Connecting...';
+        st.style.color = '#fbbf24';
+      }
+
+      try {
+        const res = await fetch('/api/camera/set-ip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ip })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          const topIp = document.getElementById('topCameraIpDisplay');
+          if (topIp) topIp.textContent = ip;
+          if (st) {
+            st.textContent = 'Connected / Reconnecting (' + ip + ')';
+            st.style.color = '#34d399';
+          }
+          alert('✅ Camera IP successfully updated to: ' + ip + '\nPTP/IP live view session reconnecting...');
+        } else {
+          alert('❌ Error updating Camera IP: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        alert('❌ Network error: ' + (err ? err.message : String(err)));
+      } finally {
+        if (btn) {
+          btn.textContent = origText;
+          btn.disabled = false;
+        }
+      }
+    }
+
+    async function discoverCameraOnWifi() {
+      const btn = document.getElementById('btnDiscoverCamera');
+      const resBox = document.getElementById('ipScanResult');
+      if (btn) {
+        btn.textContent = '⏳ Scanning Wi-Fi...';
+        btn.disabled = true;
+      }
+      if (resBox) {
+        resBox.style.display = 'block';
+        resBox.textContent = '🔍 Scanning local network for Canon camera (SSDP 2.5s)...';
+        resBox.style.color = '#93c5fd';
+      }
+
+      try {
+        const res = await fetch('/api/camera/discover', { cache: 'no-store' });
+        const data = await res.json();
+        if (data.ok && data.cameras && data.cameras.length > 0) {
+          const cam = data.cameras[0];
+          const foundIp = cam.address;
+          const inp = document.getElementById('inputTargetCameraIp');
+          if (inp) inp.value = foundIp;
+          if (resBox) {
+            resBox.innerHTML = '✅ Found Canon Camera at <strong>' + foundIp + '</strong> (' + (cam.server || 'Canon DSLR') + '). Click <strong>Connect IP</strong> to apply.';
+            resBox.style.color = '#34d399';
+          }
+        } else {
+          if (resBox) {
+            resBox.textContent = '⚠️ No Canon camera responded to SSDP broadcast. Please verify camera Wi-Fi is active or enter IP manually (e.g. 192.168.1.2).';
+            resBox.style.color = '#fde68a';
+          }
+        }
+      } catch (err) {
+        if (resBox) {
+          resBox.textContent = '❌ Discovery scan error: ' + (err ? err.message : String(err));
+          resBox.style.color = '#fca5a5';
+        }
+      } finally {
+        if (btn) {
+          btn.textContent = '🔍 Auto-Scan Wi-Fi (SSDP)';
+          btn.disabled = false;
+        }
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const ipInp = document.getElementById('inputTargetCameraIp');
+      if (ipInp) {
+        ipInp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            applyCustomCameraIp();
+          }
+        });
+      }
+    });
 
     function copyText(id) {
       const text = document.getElementById(id).textContent;
