@@ -46,7 +46,7 @@ jobs:
     - name: Prepare Output Directory
       run: |
         mkdir -p build-output
-        cp GaviruCamStudio-Android/app/build/outputs/apk/debug/app-debug.apk build-output/GaviruCamStudio-v1.7.0.apk
+        cp GaviruCamStudio-Android/app/build/outputs/apk/debug/app-debug.apk build-output/GaviruCamStudio-v1.8.0.apk
         cp GaviruCamStudio-Android/app/build/outputs/apk/debug/app-debug.apk build-output/GaviruCamStudio.apk
         ls -lh build-output/
 
@@ -54,25 +54,26 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: GaviruCamStudio-APK
-        path: build-output/GaviruCamStudio-v1.7.0.apk
+        path: build-output/GaviruCamStudio-v1.8.0.apk
         retention-days: 30
 
     - name: Create GitHub Release with APK
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       with:
-        tag_name: v1.7.0
-        name: "Gaviru Cam Studio Android App v1.7.0"
+        tag_name: v1.8.0
+        name: "Gaviru Cam Studio Android App v1.8.0"
         body: |
-          ### 🚀 Gaviru Cam Studio Android App v1.7.0 (Correct OBS Links & Real IP Detection)
+          ### 🚀 Gaviru Cam Studio Android App v1.8.0 (Camera IP Configuration & One-Tap Connect)
+          - **⚙️ Camera IP & Settings UI**: Added prominent "⚙️ IP / Settings" button with quick presets (`192.168.1.1`, `192.168.1.2`, `192.168.1.145`).
           - **📋 Fixed Link Generation**: Sanitized stream ID (`gaviru_cam_pro`) matching VDO.Ninja requirements.
-          - **⚡ Real Numeric IP Address Detection**: Detects actual local Wi-Fi/Hotspot IP (e.g. `192.168.1.X` fixed to real IP like `192.168.1.2`).
+          - **⚡ Real Numeric IP Address Detection**: Detects actual local Wi-Fi/Hotspot IP without `192.168.1.X` fallback.
           - **🎬 Dedicated One-Tap Copy**: Separate buttons with visual Toast feedback confirming copied URLs.
-          - **📷 Canon 4000D Wi-Fi Live View & Shutter**: Full remote control and viewfinder.
+          - **📷 Canon 4000D Wi-Fi Live View & Shutter**: Full remote control, lens drive, and live viewfinder.
         draft: false
         prerelease: false
         files: |
-          build-output/GaviruCamStudio-v1.7.0.apk
+          build-output/GaviruCamStudio-v1.8.0.apk
           build-output/GaviruCamStudio.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

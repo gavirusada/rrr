@@ -42,7 +42,7 @@
                 android:id="@+id/btnSettings"
                 android:layout_width="wrap_content"
                 android:layout_height="34dp"
-                android:text="⚙️ Room"
+                android:text="⚙️ IP / Settings"
                 android:textSize="11sp"
                 android:textColor="#F8FAFC"
                 android:backgroundTint="#334155"

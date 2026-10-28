@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
@@ -809,33 +810,71 @@ public class MainActivity extends AppCompatActivity {
 
     private void showSettingsDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("⚙️ Configuration Settings");
+        builder.setTitle("⚙️ Camera IP & Stream Settings");
 
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(40, 20, 40, 10);
 
-        final EditText inputRoom = new EditText(this);
-        inputRoom.setHint("VDO.Ninja Room Name (default: gaviru-cam-pro)");
-        inputRoom.setText(roomName);
-        layout.addView(inputRoom);
+        TextView labelIp = new TextView(this);
+        labelIp.setText("📷 Canon Camera Wi-Fi IP:");
+        labelIp.setTextSize(13f);
+        labelIp.setTextColor(Color.WHITE);
+        labelIp.setPadding(0, 10, 0, 4);
+        layout.addView(labelIp);
 
         final EditText inputIp = new EditText(this);
-        inputIp.setHint("Canon Camera Wi-Fi IP (default: 192.168.1.1)");
+        inputIp.setHint("Default: 192.168.1.1 (or 192.168.1.2)");
         inputIp.setText(cameraIp);
         layout.addView(inputIp);
 
+        // Quick IP Presets row
+        LinearLayout presetsLayout = new LinearLayout(this);
+        presetsLayout.setOrientation(LinearLayout.HORIZONTAL);
+        presetsLayout.setPadding(0, 0, 0, 16);
+
+        Button btnPreset1 = new Button(this, null, android.R.attr.buttonStyleSmall);
+        btnPreset1.setText("192.168.1.1");
+        btnPreset1.setOnClickListener(v -> inputIp.setText("192.168.1.1"));
+        presetsLayout.addView(btnPreset1);
+
+        Button btnPreset2 = new Button(this, null, android.R.attr.buttonStyleSmall);
+        btnPreset2.setText("192.168.1.2");
+        btnPreset2.setOnClickListener(v -> inputIp.setText("192.168.1.2"));
+        presetsLayout.addView(btnPreset2);
+
+        Button btnPreset3 = new Button(this, null, android.R.attr.buttonStyleSmall);
+        btnPreset3.setText("192.168.1.145");
+        btnPreset3.setOnClickListener(v -> inputIp.setText("192.168.1.145"));
+        presetsLayout.addView(btnPreset3);
+
+        layout.addView(presetsLayout);
+
+        TextView labelRoom = new TextView(this);
+        labelRoom.setText("🌐 VDO.Ninja Room Name:");
+        labelRoom.setTextSize(13f);
+        labelRoom.setTextColor(Color.WHITE);
+        labelRoom.setPadding(0, 10, 0, 4);
+        layout.addView(labelRoom);
+
+        final EditText inputRoom = new EditText(this);
+        inputRoom.setHint("Default: gaviru_cam_pro");
+        inputRoom.setText(roomName);
+        layout.addView(inputRoom);
+
         builder.setView(layout);
-        builder.setPositiveButton("Save Settings", (dialog, which) -> {
-            roomName = inputRoom.getText().toString().trim();
+        builder.setPositiveButton("Save & Connect", (dialog, which) -> {
+            roomName = inputRoom.getText().toString().trim().replace("-", "_");
             cameraIp = inputIp.getText().toString().trim();
-            if (roomName.isEmpty()) roomName = "gaviru-cam-pro";
+            if (roomName.isEmpty()) roomName = "gaviru_cam_pro";
             if (cameraIp.isEmpty()) cameraIp = "192.168.1.1";
 
             prefs.edit()
                     .putString(KEY_ROOM_NAME, roomName)
                     .putString(KEY_CAMERA_IP, cameraIp)
                     .apply();
+
+            Toast.makeText(this, "✅ Settings Saved! Camera IP: " + cameraIp, Toast.LENGTH_SHORT).show();
 
             if (currentMode == AppMode.CANON_DSLR) {
                 startLocalServices();
