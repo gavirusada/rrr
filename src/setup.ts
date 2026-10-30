@@ -461,21 +461,12 @@ function createSetupWizardHtml(): string {
         <span style="font-size:10.5px; color:#fca5a5;">STRICTLY PROHIBITED FOR UNAUTHORIZED RESALE • COPYRIGHT © GAVIRU SANDEEPTHA</span>
       </div>
 
-      <div class="pwd-box">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <label for="setupPassword" style="font-size:12.5px; font-weight:700; color:#e5e7eb;">
-            🔑 Setup Password එක ඇතුළත් කරන්න (Enter Setup Password):
-          </label>
-          <span style="font-size:11.5px; color:#fbbf24; font-weight:800;">Password: gavi01</span>
-        </div>
-        <div class="pwd-input-wrap">
-          <input type="text" id="setupPassword" value="gavi01" placeholder="Enter 'gavi01'..." autocomplete="off">
-          <button type="button" onclick="fillPassword()" style="background:#1e293b; border:1px solid #475569; color:#cbd5e1; padding:9px 12px; font-size:12px;">
-            Auto-Fill
-          </button>
-        </div>
-        <div id="pwdErr" style="display:none; color:#f87171; font-size:12px; font-weight:700; text-align:center;">
-          ❌ මුරපදය වැරදියි! කරුණාකර gavi01 ඇතුළත් කරන්න.
+      <div style="background:#0d121c; border:1px solid #10b981; border-radius:10px; padding:12px 14px; text-align:center;">
+        <span style="font-size:13px; font-weight:800; color:#34d399;">
+          🔓 සම්පූර්ණ මෘදුකාංගය අගුළු හැර ඇත (All Locks Removed — 100% Unlocked)
+        </span>
+        <div style="font-size:11.5px; color:#94a3b8; margin-top:4px;">
+          කිසිදු මුරපදයක් අවශ්‍ය නොවේ. පහත බොත්තම එබූ විට කෙලින්ම Install වේ.
         </div>
       </div>
 
@@ -495,8 +486,8 @@ function createSetupWizardHtml(): string {
 
       <div class="btn-row">
         <button class="btn-cancel" onclick="closeSetupWizard()">❌ Close Setup</button>
-        <button id="btnInstall" class="btn-install" onclick="startInstallation()">
-          🚀 Unlock & Install Full Software (gavi01)
+        <button id="btnInstall" class="btn-install" onclick="startInstallation()" style="background:linear-gradient(135deg, #10b981, #059669); border-color:#10b981;">
+          🚀 1-Click Install Full Software & Launch Studio
         </button>
       </div>
     </div>
@@ -504,13 +495,6 @@ function createSetupWizardHtml(): string {
 
   <script>
     let lastLogCount = 0;
-
-    function fillPassword() {
-      const inp = document.getElementById('setupPassword');
-      inp.value = 'gavi01';
-      document.getElementById('pwdErr').style.display = 'none';
-      inp.focus();
-    }
 
     async function pollSetupState() {
       try {
@@ -567,15 +551,6 @@ function createSetupWizardHtml(): string {
     }
 
     async function startInstallation() {
-      const pwd = (document.getElementById('setupPassword').value || '').trim().toLowerCase();
-      const errEl = document.getElementById('pwdErr');
-      if (pwd !== 'gavi01') {
-        errEl.style.display = 'block';
-        document.getElementById('setupPassword').focus();
-        return;
-      }
-      errEl.style.display = 'none';
-
       const btn = document.getElementById('btnInstall');
       btn.disabled = true;
       btn.textContent = '⏳ Starting Installation...';
@@ -583,7 +558,7 @@ function createSetupWizardHtml(): string {
       await fetch('/api/start-install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pwd })
+        body: JSON.stringify({ install: true })
       });
       await pollSetupState();
     }
@@ -603,13 +578,8 @@ function createSetupWizardHtml(): string {
       } catch {}
     });
 
-    document.getElementById('setupPassword').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') startInstallation();
-    });
-
     pollSetupState();
     setInterval(pollSetupState, 500);
-    setTimeout(() => document.getElementById('setupPassword').focus(), 150);
   </script>
 </body>
 </html>`;
@@ -658,25 +628,9 @@ async function startSetupWizardServer(): Promise<void> {
     }
 
     if (reqUrl.pathname === "/api/start-install" && req.method === "POST") {
-      let body = "";
-      req.on("data", (chunk) => (body += chunk));
-      req.on("end", () => {
-        try {
-          const parsed = JSON.parse(body || "{}");
-          const inputPwd = String(parsed.password ?? "").trim().toLowerCase();
-          if (inputPwd !== "gavi01") {
-            res.writeHead(403, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ ok: false, error: "Invalid password" }));
-            return;
-          }
-          void performInstallation();
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ ok: true }));
-        } catch {
-          res.writeHead(400, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ ok: false }));
-        }
-      });
+      void performInstallation();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
       return;
     }
 

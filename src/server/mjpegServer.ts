@@ -1617,74 +1617,6 @@ export function createStudioControlPage(): string {
   </style>
 </head>
 <body>
-  <!-- Commercial Software License & Password Protection Lock Screen (Password: gavi01) -->
-  <div id="licenseLockModal" style="position:fixed; inset:0; z-index:99999; background:radial-gradient(circle at 50% 25%, rgba(28,36,56,0.97) 0%, rgba(5,7,11,0.99) 100%); backdrop-filter:blur(18px); display:flex; align-items:center; justify-content:center; padding:20px;">
-    <div style="max-width:520px; width:100%; background:linear-gradient(180deg, #121722 0%, #0b0e15 100%); border:1px solid rgba(251,191,36,0.45); border-radius:16px; box-shadow:0 25px 70px rgba(0,0,0,0.85), 0 0 40px rgba(245,158,11,0.12); padding:28px 28px 24px; text-align:center; position:relative;">
-      <!-- Custom Studio DSLR Camera Logo SVG -->
-      <div style="display:flex; justify-content:center; margin-bottom:14px;">
-        <div style="width:78px; height:78px; border-radius:20px; background:linear-gradient(135deg, #111827, #1e293b); border:2px solid #f59e0b; box-shadow:0 8px 25px rgba(245,158,11,0.28); display:grid; place-items:center;">
-          <svg width="48" height="48" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="6" y="16" width="52" height="38" rx="8" fill="#0F172A" stroke="#F59E0B" stroke-width="2.5"/>
-            <path d="M20 16L24 9H40L44 16H20Z" fill="#DC2626" stroke="#F59E0B" stroke-width="2"/>
-            <circle cx="32" cy="35" r="14" fill="#090D16" stroke="#F59E0B" stroke-width="2.5"/>
-            <circle cx="32" cy="35" r="9" fill="#0284C7" fill-opacity="0.35" stroke="#38BDF8" stroke-width="2"/>
-            <circle cx="29" cy="32" r="3" fill="#E0F2FE"/>
-            <circle cx="49" cy="24" r="3" fill="#EF4444"/>
-          </svg>
-        </div>
-      </div>
-
-      <div style="display:inline-flex; align-items:center; gap:6px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.45); color:#fde68a; font-size:11px; font-weight:800; padding:3px 12px; border-radius:999px; letter-spacing:0.08em; margin-bottom:8px;">
-        👑 OFFICIAL COMMERCIAL EDITION • LICENSED SOFTWARE
-      </div>
-
-      <h1 style="margin:0 0 4px; font-size:22px; font-weight:900; color:#ffffff; letter-spacing:0.02em;">
-        GAVIRU E400D CAM STUDIO PRO
-      </h1>
-      <p style="margin:0 0 14px; font-size:12.5px; color:#9ca3af;">
-        Canon EOS 4000D Full HD 1080p Broadcast, Audio & Remote Control Suite
-      </p>
-
-      <!-- Owner / Developer & Anti-Resale Legal Box -->
-      <div style="background:rgba(15,23,42,0.85); border:1px solid #263042; border-radius:10px; padding:12px 14px; text-align:left; margin-bottom:14px; display:flex; flex-direction:column; gap:7px; font-size:12px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.07); padding-bottom:6px;">
-          <span style="color:#9ca3af;">👤 නිර්මාණය සහ අයිතිය (Owner):</span>
-          <strong style="color:#fbbf24; font-size:13.5px; letter-spacing:0.03em;">Gaviru Sandeeptha</strong>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:2px; border-bottom:1px solid rgba(255,255,255,0.07); padding-bottom:6px;">
-          <span style="color:#9ca3af;">📁 Project / Software ගත්ත තැන (Location):</span>
-          <code id="licenseProjectPath" style="color:#6ee7b7; font-size:11px; word-break:break-all; background:#06090f; padding:4px 7px; border-radius:5px; border:1px solid #1e293b;">c:\Users\gavir\Downloads\rivet-main (1)\rivet-main</code>
-        </div>
-        <div style="background:rgba(220,38,38,0.16); border:1px solid rgba(239,68,68,0.5); border-radius:7px; padding:7px 10px; color:#fecaca; font-weight:700; font-size:11.5px; text-align:center; line-height:1.45;">
-          🚫 අවසරයකින් තොරව නැවත විකිණීම හෝ බෙදාහැරීම සපුරා තහනම්!<br>
-          <span style="font-size:10.5px; color:#fca5a5; font-weight:600;">STRICTLY PROHIBITED FOR UNAUTHORIZED RESALE • © GAVIRU SANDEEPTHA</span>
-        </div>
-      </div>
-
-      <!-- Password Form -->
-      <form onsubmit="event.preventDefault(); unlockCommercialLicense();" style="display:flex; flex-direction:column; gap:10px;">
-        <div style="text-align:left;">
-          <label for="licensePasswordInput" style="display:block; font-size:11.5px; font-weight:700; color:#d1d5db; margin-bottom:5px;">
-            🔐 මෘදුකාංග මුරපදය ඇතුළත් කරන්න (Enter License Password):
-          </label>
-          <input
-            type="password"
-            id="licensePasswordInput"
-            placeholder="Enter password to unlock Studio..."
-            autocomplete="off"
-            style="width:100%; padding:11px 14px; font-size:14px; font-weight:700; border-radius:8px; border:1px solid #3b82f6; background:#06080e; color:#fff; text-align:center; letter-spacing:0.12em;"
-          >
-        </div>
-        <div id="licenseErrorMsg" style="display:none; color:#f87171; font-size:12px; font-weight:700;">
-          ❌ මුරපදය වැරදියි! නිවැරදි මුරපදය ඇතුළත් කරන්න. (Invalid Password)
-        </div>
-        <button type="submit" style="padding:11px 18px; font-size:14px; font-weight:800; border-radius:8px; border:1px solid #f59e0b; background:linear-gradient(135deg, #d97706, #b45309); color:#fff; cursor:pointer; box-shadow:0 6px 20px rgba(217,119,6,0.35);">
-          🔓 Unlock Gaviru Cam Studio Pro
-        </button>
-      </form>
-    </div>
-  </div>
-
   <!-- Top Action Bar -->
   <header class="topbar">
     <div class="brand-group">
@@ -1747,9 +1679,6 @@ export function createStudioControlPage(): string {
       </button>
       <button id="btnToggleLogsTop" class="btn-evf-on" onclick="toggleStudioLogsDrawer()" title="Show or Hide Live System & Camera Console Logs on Screen">
         🖥️ Logs: ON
-      </button>
-      <button onclick="lockCommercialLicense()" style="border-color:#f59e0b; color:#fde68a;" title="Lock App with Password (gavi01)">
-        🔒 Lock
       </button>
       <button onclick="shutdownStudioApp()" style="border-color:#ef4444; background:rgba(239,68,68,0.18); color:#fca5a5;" title="Completely close Gaviru E400D Cam Studio background app">
         ❌ Exit App
@@ -3101,49 +3030,6 @@ export function createStudioControlPage(): string {
         console.warn('State poll failed', e);
       }
     }
-
-    const COMMERCIAL_LICENSE_KEY = 'gaviru_studio_unlocked_v1';
-
-    function checkSavedCommercialLicense() {
-      const modal = document.getElementById('licenseLockModal');
-      if (!modal) return;
-      if (sessionStorage.getItem(COMMERCIAL_LICENSE_KEY) === 'gavi01') {
-        modal.style.display = 'none';
-      } else {
-        modal.style.display = 'flex';
-        setTimeout(() => {
-          document.getElementById('licensePasswordInput')?.focus();
-        }, 120);
-      }
-    }
-
-    function unlockCommercialLicense() {
-      const input = document.getElementById('licensePasswordInput');
-      const errEl = document.getElementById('licenseErrorMsg');
-      const modal = document.getElementById('licenseLockModal');
-      const entered = (input?.value || '').trim();
-      if (entered === 'gavi01') {
-        sessionStorage.setItem(COMMERCIAL_LICENSE_KEY, 'gavi01');
-        if (errEl) errEl.style.display = 'none';
-        if (modal) modal.style.display = 'none';
-        playFocusConfirmBeep();
-      } else {
-        if (errEl) errEl.style.display = 'block';
-        if (input) {
-          input.value = '';
-          input.focus();
-        }
-      }
-    }
-
-    function lockCommercialLicense() {
-      sessionStorage.removeItem(COMMERCIAL_LICENSE_KEY);
-      const input = document.getElementById('licensePasswordInput');
-      if (input) input.value = '';
-      checkSavedCommercialLicense();
-    }
-
-    checkSavedCommercialLicense();
 
     // Automatically shut down background server & terminal process when the App Window is closed (X button)
     function notifyServerWindowClosed() {
