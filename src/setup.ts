@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { execSync, spawn } from "node:child_process";
+import { exec, execSync, spawn } from "node:child_process";
 import embeddedAppExe from "../GaviruCamStudio-Full-Software/GaviruCamStudio.exe" with { type: "file" };
 import embeddedAppIcon from "../assets/gaviru-cam.ico" with { type: "file" };
 
@@ -41,7 +41,7 @@ const setupState: SetupState = {
   ],
   error: null,
   installDir: defaultInstallDir,
-  sourceProjectPath: "c:\\Users\\gavir\\Downloads\\rivet-main (1)\\rivet-main"
+  sourceProjectPath: process.cwd()
 };
 
 function addLog(msg: string): void {
@@ -49,52 +49,93 @@ function addLog(msg: string): void {
   setupState.logs.push(`[${time}] ${msg}`);
 }
 
+function getAppExeBuffer(): Buffer {
+  // 1. Try embedded asset path from Bun
+  try {
+    if (embeddedAppExe && existsSync(embeddedAppExe)) {
+      return readFileSync(embeddedAppExe);
+    }
+  } catch {}
+
+  // 2. Try adjacent GaviruCamStudio.exe in working directory
+  const adjacent = join(process.cwd(), "GaviruCamStudio.exe");
+  if (existsSync(adjacent)) {
+    return readFileSync(adjacent);
+  }
+
+  // 3. Try directory of running setup exe
+  try {
+    if (process.execPath) {
+      const exeDir = join(process.execPath, "..", "GaviruCamStudio.exe");
+      if (existsSync(exeDir)) return readFileSync(exeDir);
+    }
+  } catch {}
+
+  // 4. Try Full-Software subfolder
+  const sub = join(process.cwd(), "GaviruCamStudio-Full-Software", "GaviruCamStudio.exe");
+  if (existsSync(sub)) {
+    return readFileSync(sub);
+  }
+
+  throw new Error("GaviruCamStudio.exe binary could not be found to install.");
+}
+
+function getAppIconBuffer(): Buffer {
+  try {
+    if (embeddedAppIcon && existsSync(embeddedAppIcon)) {
+      return readFileSync(embeddedAppIcon);
+    }
+  } catch {}
+
+  const candidates = [
+    join(process.cwd(), "assets", "gaviru-cam.ico"),
+    join(process.cwd(), "gaviru-cam.ico"),
+    join(process.cwd(), "GaviruCamStudio-Full-Software", "gaviru-cam.ico")
+  ];
+  for (const c of candidates) {
+    if (existsSync(c)) {
+      return readFileSync(c);
+    }
+  }
+  return Buffer.alloc(0);
+}
+
 async function performInstallation(): Promise<void> {
   if (setupState.running || setupState.completed) return;
   setupState.running = true;
   setupState.error = null;
-  setupState.progress = 8;
-  setupState.stepTitle = "Step 1/5: Checking & Installing Node.js LTS Runtime...";
-  addLog("Checking Node.js runtime on this PC...");
+  setupState.progress = 10;
+  setupState.stepTitle = "Step 1/4: Preparing Installation Directory...";
+  addLog(`Preparing installation directory: ${setupState.installDir}`);
 
-  await new Promise((r) => setTimeout(r, 250));
+  await new Promise((r) => setTimeout(r, 200));
 
   try {
-    if (!runQuiet("where node")) {
-      addLog("Node.js not found — automatically downloading & installing Node.js LTS...");
-      setupState.progress = 20;
-      const usedWinget = runQuiet(
-        "winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements --silent"
-      );
-      if (!usedWinget) {
-        runQuiet(
-          `powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "` +
-            `$ProgressPreference='SilentlyContinue'; ` +
-            `$msi=Join-Path $env:TEMP 'nodejs-lts-x64.msi'; ` +
-            `Invoke-WebRequest -Uri 'https://nodejs.org/dist/v22.14.0/node-v22.14.0-x64.msi' -OutFile $msi; ` +
-            `Start-Process msiexec.exe -ArgumentList '/i',$msi,'/qn','/norestart' -WindowStyle Hidden -Wait; ` +
-            `Remove-Item $msi -ErrorAction SilentlyContinue"`
-        );
-      }
-      addLog("[OK] Node.js LTS runtime installed automatically.");
-    } else {
-      addLog("[OK] Node.js is already installed on this PC.");
-    }
-
-    setupState.progress = 45;
-    setupState.stepTitle = "Step 2/5: Installing GaviruCamStudio.exe & Custom Studio Icon...";
-    addLog(`Creating installation directory: ${setupState.installDir}`);
     mkdirSync(setupState.installDir, { recursive: true });
 
+    // Stop any existing instance cleanly
+    addLog("Stopping any running GaviruCamStudio instances...");
     runQuiet("taskkill /F /IM GaviruCamStudio.exe");
+    await new Promise((r) => setTimeout(r, 500));
+
+    setupState.progress = 35;
+    setupState.stepTitle = "Step 2/4: Installing GaviruCamStudio.exe & Custom Studio Icon...";
+    addLog("Extracting GaviruCamStudio.exe standalone binary...");
 
     const targetExe = join(setupState.installDir, "GaviruCamStudio.exe");
     const targetIco = join(setupState.installDir, "gaviru-cam.ico");
 
-    writeFileSync(targetExe, readFileSync(embeddedAppExe));
-    writeFileSync(targetIco, readFileSync(embeddedAppIcon));
-    addLog("[OK] Extracted GaviruCamStudio.exe & gaviru-cam.ico.");
+    const exeBuffer = getAppExeBuffer();
+    writeFileSync(targetExe, exeBuffer);
 
+    const icoBuffer = getAppIconBuffer();
+    if (icoBuffer.length > 0) {
+      writeFileSync(targetIco, icoBuffer);
+    }
+
+    addLog(`[OK] Installed GaviruCamStudio.exe (${Math.round(exeBuffer.length / (1024 * 1024))} MB) & Icon.`);
+
+    // Write persistent config with port 8787
     const targetConfig = join(setupState.installDir, "camera-config.json");
     if (!existsSync(targetConfig)) {
       writeFileSync(
@@ -104,7 +145,7 @@ async function performInstallation(): Promise<void> {
             cameraIp: "192.168.1.145",
             cameraPort: 15740,
             listenHost: "0.0.0.0",
-            listenPort: 8080,
+            listenPort: 8787,
             autoDiscover: true
           },
           null,
@@ -114,21 +155,33 @@ async function performInstallation(): Promise<void> {
       );
     }
 
-    setupState.progress = 68;
-    setupState.stepTitle = "Step 3/5: Configuring Windows Firewall Rules...";
-    addLog("Adding Windows Firewall rules for Canon PTP/IP & OBS HTTP Stream...");
+    // Copy helper batch files if present
+    const startBatSrc = join(process.cwd(), "Start-GaviruCamStudio.bat");
+    if (existsSync(startBatSrc)) {
+      writeFileSync(join(setupState.installDir, "Start-GaviruCamStudio.bat"), readFileSync(startBatSrc));
+    }
+    const studioBatSrc = join(process.cwd(), "start-studio.bat");
+    if (existsSync(studioBatSrc)) {
+      writeFileSync(join(setupState.installDir, "start-studio.bat"), readFileSync(studioBatSrc));
+    }
+
+    setupState.progress = 70;
+    setupState.stepTitle = "Step 3/4: Configuring Windows Network & Firewall Rules...";
+    addLog("Configuring Windows Firewall for Canon PTP/IP & OBS Port 8787...");
     runQuiet(`netsh advfirewall firewall delete rule name="Gaviru E400D Cam Studio"`);
     runQuiet(
       `netsh advfirewall firewall add rule name="Gaviru E400D Cam Studio" dir=in action=allow program="${targetExe}" enable=yes`
     );
     runQuiet(
-      `netsh advfirewall firewall add rule name="Gaviru E400D Cam Studio HTTP" dir=in action=allow protocol=TCP localport=8080`
+      `netsh advfirewall firewall add rule name="Gaviru E400D Cam Studio HTTP" dir=in action=allow protocol=TCP localport=8787`
     );
-    addLog("[OK] Windows Firewall configured.");
+    addLog("[OK] Windows Firewall rules configured.");
 
     setupState.progress = 88;
-    setupState.stepTitle = "Step 4/5: Creating Desktop & Start Menu Shortcuts with Logo...";
-    addLog("Creating Desktop & Start Menu shortcuts ('Gaviru E400D Cam Studio')...");
+    setupState.stepTitle = "Step 4/4: Creating Desktop & Start Menu Shortcuts...";
+    addLog("Creating Desktop shortcut ('Gaviru E400D Cam Studio')...");
+
+    const iconArg = existsSync(targetIco) ? `${targetIco.replace(/'/g, "''")},0` : "shell32.dll,16";
     const psShortcut =
       `$ws = New-Object -ComObject WScript.Shell; ` +
       `$desk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Gaviru E400D Cam Studio.lnk'; ` +
@@ -136,31 +189,38 @@ async function performInstallation(): Promise<void> {
       `$s1.TargetPath = '${targetExe.replace(/'/g, "''")}'; ` +
       `$s1.WorkingDirectory = '${setupState.installDir.replace(/'/g, "''")}'; ` +
       `$s1.Description = 'Gaviru E400D Cam Studio Pro — Owned by Gaviru Sandeeptha'; ` +
-      `$s1.IconLocation = '${targetIco.replace(/'/g, "''")},0'; ` +
+      `$s1.IconLocation = '${iconArg}'; ` +
       `$s1.Save(); ` +
       `$prog = Join-Path ([Environment]::GetFolderPath('Programs')) 'Gaviru E400D Cam Studio.lnk'; ` +
       `$s2 = $ws.CreateShortcut($prog); ` +
       `$s2.TargetPath = '${targetExe.replace(/'/g, "''")}'; ` +
       `$s2.WorkingDirectory = '${setupState.installDir.replace(/'/g, "''")}'; ` +
       `$s2.Description = 'Gaviru E400D Cam Studio Pro — Owned by Gaviru Sandeeptha'; ` +
-      `$s2.IconLocation = '${targetIco.replace(/'/g, "''")},0'; ` +
+      `$s2.IconLocation = '${iconArg}'; ` +
       `$s2.Save();`;
+
     runQuiet(`powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "${psShortcut}"`);
-    addLog("[OK] Desktop & Start Menu shortcuts created with Gaviru Studio Icon.");
+    addLog("[OK] Desktop & Start Menu shortcuts created successfully!");
 
     setupState.progress = 100;
     setupState.completed = true;
     setupState.running = false;
-    setupState.stepTitle = "✅ Step 5/5: Installation Complete! Launching Gaviru Cam Studio Pro...";
+    setupState.stepTitle = "✅ Installation Complete! Launching Studio...";
     addLog("✅ INSTALLATION COMPLETE! Launching Gaviru E400D Cam Studio Pro...");
 
+    // Launch GaviruCamStudio.exe
     const child = spawn(targetExe, [], {
       cwd: setupState.installDir,
       detached: true,
-      stdio: "ignore",
-      windowsHide: true
+      stdio: "ignore"
     });
     child.unref();
+
+    // Also open the browser control page
+    setTimeout(() => {
+      openDesktopSetupWindow("http://127.0.0.1:8787/control");
+    }, 1200);
+
   } catch (err) {
     setupState.running = false;
     setupState.error = err instanceof Error ? err.message : String(err);
@@ -268,17 +328,21 @@ function createSetupWizardHtml(): string {
       flex-direction: column;
       gap: 8px;
     }
-    input[type="password"] {
-      width: 100%;
+    .pwd-input-wrap {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    input[type="text"], input[type="password"] {
+      flex: 1;
       padding: 10px 14px;
       font-size: 14px;
       font-weight: 700;
       border-radius: 8px;
-      border: 1px solid #3b82f6;
+      border: 1.5px solid #3b82f6;
       background: #05070c;
       color: #fff;
-      text-align: center;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.08em;
     }
     .progress-wrap {
       background: #06080d;
@@ -298,7 +362,7 @@ function createSetupWizardHtml(): string {
       border: 1px solid #1e2430;
       border-radius: 8px;
       padding: 8px 10px;
-      height: 115px;
+      height: 110px;
       overflow-y: auto;
       font-family: ui-monospace, Consolas, monospace;
       font-size: 11.5px;
@@ -322,14 +386,14 @@ function createSetupWizardHtml(): string {
     }
     .btn-install {
       flex: 1;
-      background: linear-gradient(135deg, #d97706, #b45309);
-      border-color: #f59e0b;
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      border-color: #3b82f6;
       color: #fff;
       font-size: 14px;
-      box-shadow: 0 6px 20px rgba(217, 119, 6, 0.35);
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.35);
     }
     .btn-install:disabled {
-      opacity: 0.5;
+      opacity: 0.6;
       cursor: not-allowed;
     }
     .btn-cancel {
@@ -337,6 +401,16 @@ function createSetupWizardHtml(): string {
       border-color: #ef4444;
       color: #fca5a5;
       font-size: 13px;
+    }
+    .err-banner {
+      background: #450a0a;
+      border: 1px solid #ef4444;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: #fecaca;
+      font-weight: 700;
+      display: none;
     }
   </style>
 </head>
@@ -361,7 +435,7 @@ function createSetupWizardHtml(): string {
           GAVIRU E400D CAM STUDIO PRO — SETUP WIZARD
         </h1>
         <div style="font-size:12px; color:#9ca3af;">
-          Auto Node.js LTS + Full Camera Broadcast Suite Installer
+          Canon EOS 4000D Full Live View, Shutter & OBS Broadcast Studio
         </div>
       </div>
     </div>
@@ -373,11 +447,11 @@ function createSetupWizardHtml(): string {
           <strong style="color:#fbbf24; font-size:14px;">Gaviru Sandeeptha</strong>
         </div>
         <div class="info-row">
-          <span style="color:#9ca3af;">📁 Project ගත්ත තැන (Project Source):</span>
-          <code id="srcPathEl" style="color:#93c5fd; font-size:11px;">c:\\Users\\gavir\\Downloads\\rivet-main (1)\\rivet-main</code>
+          <span style="color:#9ca3af;">📁 Source Folder:</span>
+          <code id="srcPathEl" style="color:#93c5fd; font-size:11px;">Loading...</code>
         </div>
         <div class="info-row">
-          <span style="color:#9ca3af;">💿 Install වෙන තැන (Install Location):</span>
+          <span style="color:#9ca3af;">💿 Install වෙන ස්ථානය (Target Location):</span>
           <code id="instPathEl" style="color:#6ee7b7; font-size:11px;">Loading...</code>
         </div>
       </div>
@@ -388,14 +462,24 @@ function createSetupWizardHtml(): string {
       </div>
 
       <div class="pwd-box">
-        <label for="setupPassword" style="font-size:12px; font-weight:700; color:#e5e7eb;">
-          🔐 Setup Password ඇතුළත් කරන්න (Enter Setup Password to Install):
-        </label>
-        <input type="password" id="setupPassword" placeholder="Enter Setup Password..." autocomplete="off">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <label for="setupPassword" style="font-size:12.5px; font-weight:700; color:#e5e7eb;">
+            🔑 Setup Password එක ඇතුළත් කරන්න (Enter Setup Password):
+          </label>
+          <span style="font-size:11.5px; color:#fbbf24; font-weight:800;">Password: gavi01</span>
+        </div>
+        <div class="pwd-input-wrap">
+          <input type="text" id="setupPassword" value="gavi01" placeholder="Enter 'gavi01'..." autocomplete="off">
+          <button type="button" onclick="fillPassword()" style="background:#1e293b; border:1px solid #475569; color:#cbd5e1; padding:9px 12px; font-size:12px;">
+            Auto-Fill
+          </button>
+        </div>
         <div id="pwdErr" style="display:none; color:#f87171; font-size:12px; font-weight:700; text-align:center;">
-          ❌ මුරපදය වැරදියි! නිවැරදි Setup Password එක ඇතුළත් කරන්න.
+          ❌ මුරපදය වැරදියි! කරුණාකර gavi01 ඇතුළත් කරන්න.
         </div>
       </div>
+
+      <div id="errorBanner" class="err-banner"></div>
 
       <div>
         <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700; margin-bottom:5px;">
@@ -412,7 +496,7 @@ function createSetupWizardHtml(): string {
       <div class="btn-row">
         <button class="btn-cancel" onclick="closeSetupWizard()">❌ Close Setup</button>
         <button id="btnInstall" class="btn-install" onclick="startInstallation()">
-          🚀 Install Node.js + Full Software & Launch Studio
+          🚀 Unlock & Install Full Software (gavi01)
         </button>
       </div>
     </div>
@@ -420,6 +504,13 @@ function createSetupWizardHtml(): string {
 
   <script>
     let lastLogCount = 0;
+
+    function fillPassword() {
+      const inp = document.getElementById('setupPassword');
+      inp.value = 'gavi01';
+      document.getElementById('pwdErr').style.display = 'none';
+      inp.focus();
+    }
 
     async function pollSetupState() {
       try {
@@ -446,22 +537,37 @@ function createSetupWizardHtml(): string {
           logsBox.scrollTop = logsBox.scrollHeight;
         }
 
+        const errBox = document.getElementById('errorBanner');
+        if (data.error) {
+          errBox.style.display = 'block';
+          errBox.textContent = '⚠️ Install Error: ' + data.error;
+          const btn = document.getElementById('btnInstall');
+          btn.disabled = false;
+          btn.textContent = '🔄 Retry Installation';
+        } else {
+          errBox.style.display = 'none';
+        }
+
         const btn = document.getElementById('btnInstall');
         if (data.completed) {
-          btn.textContent = '✅ Installed & Launched! Closing Setup...';
-          btn.disabled = true;
+          btn.textContent = '🎉 Successfully Installed! Launching App...';
+          btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+          btn.disabled = false;
+          btn.onclick = () => {
+            window.open('http://127.0.0.1:8787/control', '_blank');
+          };
           setTimeout(() => {
             closeSetupWizard();
-          }, 2200);
+          }, 3500);
         } else if (data.running) {
-          btn.textContent = '⏳ Installing Full Software... Please Wait...';
+          btn.textContent = '⏳ Installing Gaviru Cam Studio... Please Wait...';
           btn.disabled = true;
         }
       } catch {}
     }
 
     async function startInstallation() {
-      const pwd = (document.getElementById('setupPassword').value || '').trim();
+      const pwd = (document.getElementById('setupPassword').value || '').trim().toLowerCase();
       const errEl = document.getElementById('pwdErr');
       if (pwd !== 'gavi01') {
         errEl.style.display = 'block';
@@ -469,6 +575,11 @@ function createSetupWizardHtml(): string {
         return;
       }
       errEl.style.display = 'none';
+
+      const btn = document.getElementById('btnInstall');
+      btn.disabled = true;
+      btn.textContent = '⏳ Starting Installation...';
+
       await fetch('/api/start-install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -513,7 +624,7 @@ function openDesktopSetupWindow(url: string): void {
   ];
   for (const bin of candidates) {
     if (existsSync(bin)) {
-      const child = spawn(bin, [`--app=${url}`, "--window-size=720,680"], {
+      const child = spawn(bin, [`--app=${url}`, "--window-size=720,720"], {
         detached: true,
         stdio: "ignore",
         windowsHide: true
@@ -552,7 +663,8 @@ async function startSetupWizardServer(): Promise<void> {
       req.on("end", () => {
         try {
           const parsed = JSON.parse(body || "{}");
-          if (String(parsed.password ?? "").trim() !== "gavi01") {
+          const inputPwd = String(parsed.password ?? "").trim().toLowerCase();
+          if (inputPwd !== "gavi01") {
             res.writeHead(403, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ ok: false, error: "Invalid password" }));
             return;
