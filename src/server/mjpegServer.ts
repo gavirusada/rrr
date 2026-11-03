@@ -17,6 +17,7 @@ import {
 } from "../canon/canonProperties";
 import type { FrameSource, FrameSourceStats } from "../canon/frameSource";
 import { discoverCanonCameras } from "../canon/ssdpDiscovery";
+import { probePtpIp } from "../canon/ptpIpProbe";
 import {
   appendStudioLog,
   clearStudioLogs,
@@ -284,8 +285,42 @@ async function handleHttpRequest(
 
   if (url.pathname === "/api/camera/discover") {
     try {
-      const cameras = await discoverCanonCameras({ timeoutMs: 2500 });
-      sendJson(response, 200, { ok: true, cameras });
+      const ssdpPromise = discoverCanonCameras({ timeoutMs: 2200 }).catch(() => []);
+      const lanIps = getLocalLanAddresses();
+      const candidates = new Set<string>();
+      const cur = getCameraIp();
+      if (cur) candidates.add(cur);
+      candidates.add("192.168.1.145");
+      candidates.add("192.168.1.2");
+      for (const lanIp of lanIps) {
+        const prefix = lanIp.substring(0, lanIp.lastIndexOf(".") + 1);
+        candidates.add(prefix + "2");
+        candidates.add(prefix + "145");
+        candidates.add(prefix + "43");
+        candidates.add(prefix + "10");
+        candidates.add(prefix + "50");
+      }
+      const probePromises = Array.from(candidates).map(async (ip) => {
+        const res = await probePtpIp(ip, 15740, 700);
+        return res.reachable
+          ? {
+              address: ip,
+              port: 15740,
+              location: `http://${ip}:15740`,
+              server: "Canon EOS PTP/IP Device",
+              serviceType: "urn:schemas-canon-com:service:ICPO-SmartPhoneEOSSystemService:1",
+              usn: `canon-${ip}`
+            }
+          : null;
+      });
+      const [ssdpCameras, ...probed] = await Promise.all([ssdpPromise, ...probePromises]);
+      const foundList = [...ssdpCameras];
+      for (const p of probed) {
+        if (p && !foundList.some((c) => c.address === p.address)) {
+          foundList.push(p);
+        }
+      }
+      sendJson(response, 200, { ok: true, cameras: foundList });
     } catch (err) {
       sendJson(response, 500, { ok: false, error: String(err) });
     }
@@ -306,7 +341,21 @@ async function handleHttpRequest(
       if (options.controller !== undefined) {
         options.controller.setCameraHost(newIp);
       }
-      sendJson(response, 200, { ok: true, ip: newIp });
+      const probe = await probePtpIp(newIp, 15740, 1000);
+      if (probe.reachable) {
+        appendStudioLog("INFO", `Canon camera responded on ${newIp}:15740 (${probe.latencyMs}ms) — live view starting!`);
+      } else {
+        appendStudioLog("WARN", `Camera not responding yet on ${newIp}:15740 — background retry active...`);
+      }
+      sendJson(response, 200, {
+        ok: true,
+        ip: newIp,
+        reachable: probe.reachable,
+        latencyMs: probe.latencyMs,
+        message: probe.reachable
+          ? `Canon Camera found at ${newIp} (${probe.latencyMs}ms)! Connecting live view...`
+          : `Camera is not responding at ${newIp}:15740 yet. Background reconnecting is active. Ensure camera Wi-Fi is ON.`
+      });
     } catch (err) {
       sendJson(response, 500, { ok: false, error: String(err) });
     }
@@ -1187,10 +1236,41 @@ export function createStudioControlPage(): string {
       font-size: 12.5px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: all 0.12s ease;
+      user-select: none;
+      -webkit-user-select: none;
     }
     button:hover { border-color: #475569; background: #21293a; }
-    button:active { transform: translateY(1px); }
+    button:active { transform: scale(0.96) translateY(1px) !important; filter: brightness(1.25); }
+
+    #studioToast {
+      position: fixed;
+      top: 64px;
+      right: 20px;
+      z-index: 99999;
+      padding: 12px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      background: #1e293b;
+      border: 1px solid #3b82f6;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.8);
+      display: none;
+      align-items: center;
+      gap: 10px;
+      pointer-events: none;
+      animation: toastIn 0.25s ease-out;
+      max-width: 440px;
+      line-height: 1.45;
+    }
+    @keyframes toastIn {
+      from { transform: translateY(-12px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    #studioToast.success { background: #064e3b; border-color: #10b981; color: #a7f3d0; }
+    #studioToast.warning { background: #78350f; border-color: #f59e0b; color: #fde68a; }
+    #studioToast.error { background: #7f1d1d; border-color: #ef4444; color: #fecaca; }
     .btn-shutter {
       background: linear-gradient(135deg, #ef4444, #b91c1c);
       border-color: #f87171;
@@ -2470,7 +2550,7 @@ export function createStudioControlPage(): string {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         if (btn && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
           btn.textContent = '🔊 Use localhost for Mic';
-          btn.title = 'Click to open http://localhost:' + (location.port || '8080') + '/control so browser allows Microphone';
+          btn.title = 'Click to open http://localhost:' + (location.port || '8787') + '/control so browser allows Microphone';
         }
         return;
       }
@@ -2627,7 +2707,7 @@ export function createStudioControlPage(): string {
 
     function toggleCameraAudio() {
       if (!navigator.mediaDevices && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-        location.href = 'http://localhost:' + (location.port || '8080') + '/control';
+        location.href = 'http://localhost:' + (location.port || '8787') + '/control';
         return;
       }
       if (!rawAudioStream) {
@@ -2848,12 +2928,17 @@ export function createStudioControlPage(): string {
         }
 
         const badge = document.getElementById('connectionBadge');
-        if (!cam.evfActive) {
-          badge.textContent = 'WEB PREVIEW PAUSED';
-          badge.className = 'status-pill paused';
-        } else {
-          badge.textContent = (frame.status || 'STREAMING').toUpperCase();
-          badge.className = 'status-pill';
+        if (badge) {
+          if (!cam.connected) {
+            badge.textContent = '⚠️ CAM DISCONNECTED';
+            badge.className = 'status-pill paused';
+          } else if (!cam.evfActive) {
+            badge.textContent = 'WEB PREVIEW PAUSED';
+            badge.className = 'status-pill paused';
+          } else {
+            badge.textContent = '🟢 ' + (frame.status || 'STREAMING').toUpperCase();
+            badge.className = 'status-pill';
+          }
         }
 
         // Web Live View Toggle button
@@ -3115,8 +3200,28 @@ export function createStudioControlPage(): string {
       window.close();
     }
 
+    let toastTimer = null;
+    function showStudioToast(msg, type = 'info') {
+      let t = document.getElementById('studioToast');
+      if (!t) {
+        t = document.createElement('div');
+        t.id = 'studioToast';
+        document.body.appendChild(t);
+      }
+      t.className = type;
+      t.textContent = msg;
+      t.style.display = 'flex';
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        t.style.display = 'none';
+      }, 4000);
+    }
+
     async function sendCommand(payload) {
       lastUserCommandTime = Date.now();
+      if (!appState?.camera?.connected && payload.action !== 'set_control_authority' && payload.action !== 'clear_logs' && payload.action !== 'shutdown_app') {
+        showStudioToast('⚠️ කැමරාව තවමත් සම්බන්ධ වී නොමැත (Camera Not Connected). කරුණාකර [📡 Cam IP] ටැබ් එකෙන් Camera IP එක සකසා Connect කරන්න.', 'warning');
+      }
       try {
         const res = await fetch('/api/command', {
           method: 'POST',
@@ -3124,10 +3229,14 @@ export function createStudioControlPage(): string {
           body: JSON.stringify(payload)
         });
         const data = await res.json();
+        if (!data.ok && data.error) {
+          showStudioToast('⚠️ ' + data.error, 'warning');
+        }
         await fetchStudioState();
         return data;
       } catch (e) {
         console.warn('Command error:', e);
+        showStudioToast('❌ Network error sending command', 'error');
         return { ok: false };
       }
     }
@@ -3743,18 +3852,18 @@ export function createStudioControlPage(): string {
       const inp = document.getElementById('inputTargetCameraIp');
       const ip = (inp ? inp.value : '').trim();
       if (!ip) {
-        alert('කරුණාකර නිවැරදි IP ලිපිනයක් ඇතුළත් කරන්න (Please enter a valid IP address)');
+        showStudioToast('කරුණාකර නිවැරදි IP ලිපිනයක් ඇතුළත් කරන්න (Please enter a valid IP address)', 'warning');
         return;
       }
       const btn = document.getElementById('btnApplyCameraIp');
       const st = document.getElementById('ipConnectionStatus');
       const origText = btn ? btn.textContent : '';
       if (btn) {
-        btn.textContent = '⏳ Connecting...';
+        btn.textContent = '⏳ Checking...';
         btn.disabled = true;
       }
       if (st) {
-        st.textContent = 'Connecting...';
+        st.textContent = 'Probing ' + ip + '...';
         st.style.color = '#fbbf24';
       }
 
@@ -3768,16 +3877,25 @@ export function createStudioControlPage(): string {
         if (data.ok) {
           const topIp = document.getElementById('topCameraIpDisplay');
           if (topIp) topIp.textContent = ip;
-          if (st) {
-            st.textContent = 'Connected / Reconnecting (' + ip + ')';
-            st.style.color = '#34d399';
+          if (data.reachable) {
+            if (st) {
+              st.textContent = '🟢 Camera Responded (' + ip + ')';
+              st.style.color = '#34d399';
+            }
+            showStudioToast('✅ Canon Camera found at ' + ip + '! PTP/IP live view session starting...', 'success');
+          } else {
+            if (st) {
+              st.textContent = '🟡 Reconnecting (' + ip + ')...';
+              st.style.color = '#fbbf24';
+            }
+            showStudioToast('⚠️ Camera not responding on ' + ip + ':15740 yet. Background reconnecting is active. Ensure camera Wi-Fi is ON.', 'warning');
           }
-          alert('✅ Camera IP successfully updated to: ' + ip + '\nPTP/IP live view session reconnecting...');
+          await fetchStudioState();
         } else {
-          alert('❌ Error updating Camera IP: ' + (data.error || 'Unknown error'));
+          showStudioToast('❌ Error updating Camera IP: ' + (data.error || 'Unknown error'), 'error');
         }
       } catch (err) {
-        alert('❌ Network error: ' + (err ? err.message : String(err)));
+        showStudioToast('❌ Network error: ' + (err ? err.message : String(err)), 'error');
       } finally {
         if (btn) {
           btn.textContent = origText;
@@ -3790,12 +3908,12 @@ export function createStudioControlPage(): string {
       const btn = document.getElementById('btnDiscoverCamera');
       const resBox = document.getElementById('ipScanResult');
       if (btn) {
-        btn.textContent = '⏳ Scanning Wi-Fi...';
+        btn.textContent = '⏳ Scanning Wi-Fi & LAN...';
         btn.disabled = true;
       }
       if (resBox) {
         resBox.style.display = 'block';
-        resBox.textContent = '🔍 Scanning local network for Canon camera (SSDP 2.5s)...';
+        resBox.innerHTML = '🔍 Scanning local network for Canon camera (SSDP + Port 15740 probe)...';
         resBox.style.color = '#93c5fd';
       }
 
@@ -3808,14 +3926,17 @@ export function createStudioControlPage(): string {
           const inp = document.getElementById('inputTargetCameraIp');
           if (inp) inp.value = foundIp;
           if (resBox) {
-            resBox.innerHTML = '✅ Found Canon Camera at <strong>' + foundIp + '</strong> (' + (cam.server || 'Canon DSLR') + '). Click <strong>Connect IP</strong> to apply.';
+            resBox.innerHTML = '✅ Found Canon Camera at <strong>' + foundIp + '</strong> (' + (cam.server || 'Canon DSLR') + '). Auto-connecting now...';
             resBox.style.color = '#34d399';
           }
+          showStudioToast('✅ Found Canon Camera at ' + foundIp + '! Auto-connecting...', 'success');
+          await applyCustomCameraIp();
         } else {
           if (resBox) {
-            resBox.textContent = '⚠️ No Canon camera responded to SSDP broadcast. Please verify camera Wi-Fi is active or enter IP manually (e.g. 192.168.1.2).';
+            resBox.innerHTML = '⚠️ No Canon camera found on network.<br><strong>Tips for Canon 4000D:</strong><br>1. Turn on Camera Wi-Fi and connect to your Wi-Fi Router.<br>2. On camera: <em>[MENU] ➔ Wi-Fi function ➔ Review/change settings</em>.<br>3. Check the displayed IP (e.g. 192.168.1.XX) and enter it above.';
             resBox.style.color = '#fde68a';
           }
+          showStudioToast('⚠️ No Canon camera detected on local network. Check Camera Wi-Fi.', 'warning');
         }
       } catch (err) {
         if (resBox) {

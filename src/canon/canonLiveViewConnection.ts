@@ -206,6 +206,7 @@ export async function connectCanonLiveView(
   };
 
   let activeBindings: ActiveSessionBindings | null = null;
+  let activeConnectingTransports: { command?: MtpTransport; event?: MtpTransport } | null = null;
   let outerSharedSource: SharedFrameSource | null = null;
   let abortActiveAf = false;
   let afInProgress = false;
@@ -742,6 +743,15 @@ export async function connectCanonLiveView(
       options.host = cleanIp;
       state.lastCommand = `Target Camera IP set to ${cleanIp}`;
       state.lastCommandAt = new Date().toISOString();
+      if (activeConnectingTransports !== null) {
+        try {
+          activeConnectingTransports.command?.close();
+          activeConnectingTransports.event?.close();
+        } catch {
+          // Ignore
+        }
+        activeConnectingTransports = null;
+      }
       if (activeBindings !== null) {
         try {
           activeBindings.session.close();
@@ -755,9 +765,17 @@ export async function connectCanonLiveView(
   const reconnecting = new ReconnectingFrameSource({
     retryDelayMs: options.retryDelayMs ?? 1_000,
     async connect() {
-      return await connectCanonLiveViewWithRetry(options, state, outerSharedSource, (bindings) => {
-        activeBindings = bindings;
-      });
+      return await connectCanonLiveViewWithRetry(
+        options,
+        state,
+        outerSharedSource,
+        (bindings) => {
+          activeBindings = bindings;
+        },
+        (transports) => {
+          activeConnectingTransports = transports;
+        }
+      );
     }
   });
   const source = new SharedFrameSource(reconnecting);
@@ -777,54 +795,47 @@ async function connectCanonLiveViewWithRetry(
   options: CanonLiveViewConnectionOptions,
   state: CanonCameraState,
   outerSharedSource: SharedFrameSource | null,
-  onBindings: (bindings: ActiveSessionBindings | null) => void
+  onBindings: (bindings: ActiveSessionBindings | null) => void,
+  onConnectingTransports?: (transports: { command?: MtpTransport; event?: MtpTransport } | null) => void
 ): Promise<CanonLiveViewConnection> {
-  const deadline = Date.now() + (options.connectTimeoutMs ?? 120_000);
-  let lastError: unknown;
-
-  do {
+  while (true) {
     if (
       options.localAddress !== undefined &&
       !isLocalAddressAvailable(options.localAddress)
     ) {
-      lastError = new Error(`Local address ${options.localAddress} is not available`);
       await delay(options.retryDelayMs ?? 500);
       continue;
     }
 
     try {
-      return await connectCanonLiveViewOnce(options, state, outerSharedSource, onBindings);
+      return await connectCanonLiveViewOnce(options, state, outerSharedSource, onBindings, onConnectingTransports);
     } catch (error) {
-      lastError = error;
       state.connected = false;
       state.lastError = error instanceof Error ? error.message : String(error);
-      if (!isRetryableConnectionError(error) || Date.now() >= deadline) {
-        throw error;
-      }
-      await delay(options.retryDelayMs ?? 500);
+      await delay(options.retryDelayMs ?? 800);
     }
-  } while (Date.now() < deadline);
-
-  throw lastError;
+  }
 }
 
 async function connectCanonLiveViewOnce(
   options: CanonLiveViewConnectionOptions,
   state: CanonCameraState,
   outerSharedSource: SharedFrameSource | null,
-  onBindings: (bindings: ActiveSessionBindings | null) => void
+  onBindings: (bindings: ActiveSessionBindings | null) => void,
+  onConnectingTransports?: (transports: { command?: MtpTransport; event?: MtpTransport } | null) => void
 ): Promise<CanonLiveViewConnection> {
   const transportOptions = {
     host: options.host,
     port: options.port,
-    timeoutMs: options.timeoutMs ?? 6_000,
+    timeoutMs: options.timeoutMs ?? 5_000,
     ...(options.localAddress === undefined ? {} : { localAddress: options.localAddress })
   };
   const commandTransport = new MtpTransport(transportOptions);
   const eventTransport = new MtpTransport(transportOptions);
+  onConnectingTransports?.({ command: commandTransport, event: eventTransport });
 
   try {
-    console.log("Canon: opening command channel");
+    console.log(`Canon: opening command channel to ${options.host}:${options.port}`);
     const ack = await initializePtpIpTransport(commandTransport);
     const hwName = ack.cameraName.replace(/\0/g, "").trim();
     state.cameraName = hwName.length > 0 ? `Gaviru E400D Cam (${hwName})` : "Gaviru E400D Cam";
@@ -1162,6 +1173,7 @@ async function connectCanonLiveViewOnce(
       close() {
         state.connected = false;
         onBindings(null);
+        onConnectingTransports?.(null);
         eventChannel.close();
         session.close();
       }
@@ -1169,6 +1181,7 @@ async function connectCanonLiveViewOnce(
   } catch (error) {
     state.connected = false;
     onBindings(null);
+    onConnectingTransports?.(null);
     eventTransport.close();
     commandTransport.close();
     throw error;
@@ -1181,13 +1194,23 @@ function isRetryableConnectionError(error: unknown): boolean {
   }
 
   const code = "code" in error ? String(error.code) : "";
+  const msg = error.message.toLowerCase();
   return (
     code === "ECONNABORTED" ||
     code === "ECONNREFUSED" ||
     code === "ECONNRESET" ||
     code === "ETIMEDOUT" ||
-    error.message.startsWith("Timed out after ") ||
-    error.message.startsWith("MTP transport closed")
+    code === "EHOSTUNREACH" ||
+    code === "ENETUNREACH" ||
+    code === "EPIPE" ||
+    code === "ENOTFOUND" ||
+    code === "EADDRNOTAVAIL" ||
+    msg.includes("timed out") ||
+    msg.includes("closed") ||
+    msg.includes("unreach") ||
+    msg.includes("refused") ||
+    msg.includes("reset") ||
+    msg.includes("abort")
   );
 }
 
