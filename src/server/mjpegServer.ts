@@ -1962,7 +1962,7 @@ export function createStudioControlPage(): string {
             <button id="btnDualControl" class="btn-evf-on" onclick="sendCommand({ action: 'set_control_authority', mode: 'dual' })" title="Control from BOTH Physical Camera Dials/Shutter AND Web Panel while streaming">
               🎮 Cam + Web Dual Control
             </button>
-            <button id="btnCamPriority" onclick=" toggleCamHardwareMode()" title="Unlock 100% of physical Camera [MENU] / [Q] / Buttons on camera body">
+            <button id="btnCamPriority" onclick="toggleCamHardwareMode()" title="Unlock 100% of physical Camera [MENU] / [Q] / Buttons on camera body">
               🔓 Unlock Cam Body Menu
             </button>
           </div>
@@ -2403,7 +2403,7 @@ export function createStudioControlPage(): string {
       const s = Math.max(0, Math.min(200, Number(sharpVal ?? 100)));
       const k = Number(((s / 100) * 0.28).toFixed(3));
       const c = Number((1 + 4 * k).toFixed(3));
-      mat.setAttribute('kernelMatrix', \`0 -\${k} 0 -\${k} \${c} -\${k} 0 -\${k} 0\`);
+      mat.setAttribute('kernelMatrix', '0 -' + k + ' 0 -' + k + ' ' + c + ' -' + k + ' 0 -' + k + ' 0');
     }
 
     function scheduleVisualSync() {
@@ -2828,7 +2828,7 @@ export function createStudioControlPage(): string {
             topIp.textContent = data.currentCameraIp;
           }
           const inp = document.getElementById('inputTargetCameraIp');
-          if (inp && document.activeElement !== inp && !inp.value) {
+          if (inp && document.activeElement !== inp && !inp.getAttribute('data-user-editing')) {
             inp.value = data.currentCameraIp;
           }
         }
@@ -3833,9 +3833,14 @@ export function createStudioControlPage(): string {
     document.addEventListener('DOMContentLoaded', () => {
       const ipInp = document.getElementById('inputTargetCameraIp');
       if (ipInp) {
+        ipInp.addEventListener('focus', () => ipInp.setAttribute('data-user-editing', 'true'));
+        ipInp.addEventListener('blur', () => {
+          setTimeout(() => ipInp.removeAttribute('data-user-editing'), 1500);
+        });
         ipInp.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
+            ipInp.removeAttribute('data-user-editing');
             applyCustomCameraIp();
           }
         });
