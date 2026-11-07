@@ -1136,7 +1136,7 @@ export function createStudioControlPage(): string {
   <meta name="theme-color" content="#ef4444">
   <link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png">
   <link rel="apple-touch-icon" href="/assets/icon-192.png">
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" crossorigin="anonymous" onerror="console.warn('PeerJS CDN offline — WebRTC disabled')"></script>
   <style>
     :root {
       color-scheme: dark;
@@ -1240,6 +1240,7 @@ export function createStudioControlPage(): string {
       user-select: none;
       -webkit-user-select: none;
     }
+    input[type="text"] { cursor: text; user-select: auto; -webkit-user-select: auto; }
     button:hover { border-color: #475569; background: #21293a; }
     button:active { transform: scale(0.96) translateY(1px) !important; filter: brightness(1.25); }
 
@@ -1335,6 +1336,8 @@ export function createStudioControlPage(): string {
       border-radius: 6px;
       font-size: 12px;
       color: var(--muted);
+      cursor: pointer;
+      user-select: none;
     }
     .mode-switch button.active {
       background: linear-gradient(135deg, #2563eb, #1d4ed8);
@@ -1560,25 +1563,42 @@ export function createStudioControlPage(): string {
     }
     .tab-bar {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 6px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
       background: var(--panel);
       padding: 6px;
       border-radius: 10px;
       border: 1px solid var(--border);
     }
     .tab-btn {
-      padding: 8px 6px;
-      font-size: 11.5px;
+      padding: 7px 4px;
+      font-size: 10.5px;
       text-align: center;
-      border: none;
+      border: 1px solid transparent;
       background: transparent;
       color: var(--muted);
       border-radius: 6px;
+      cursor: pointer !important;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      pointer-events: auto !important;
+      position: relative;
+      z-index: 1;
+      transition: background 0.1s, color 0.1s;
+    }
+    .tab-btn:hover {
+      background: rgba(255,255,255,0.07);
+      color: #e2e8f0;
+    }
+    .tab-btn:active {
+      transform: scale(0.95);
+      background: rgba(59,130,246,0.3);
     }
     .tab-btn.active {
       background: var(--blue);
       color: #fff;
+      border-color: rgba(255,255,255,0.15);
     }
 
     .studio-section {
@@ -1996,7 +2016,7 @@ export function createStudioControlPage(): string {
               <span class="val" id="ipConnectionStatus" style="color:#34d399; font-weight:700;">Ready</span>
             </div>
             <div style="display:flex; gap:6px;">
-              <input type="text" id="inputTargetCameraIp" placeholder="e.g. 192.168.1.145 or 192.168.1.2" value="192.168.1.145" style="flex:1; font-family:monospace; font-size:13px; font-weight:700; background:#0b0f19; border:1.5px solid #3b82f6; color:#f8fafc; padding:8px 12px; border-radius:6px;">
+              <input type="text" id="inputTargetCameraIp" placeholder="e.g. 192.168.1.145 or 192.168.1.2" value="192.168.1.145" style="flex:1; font-family:monospace; font-size:13px; font-weight:700; background:#0b0f19; border:1.5px solid #3b82f6; color:#f8fafc; padding:8px 12px; border-radius:6px; cursor:text;" onkeydown="if(event.key==='Enter'||event.keyCode===13){applyCustomCameraIp();}">
               <button id="btnApplyCameraIp" onclick="applyCustomCameraIp()" style="background:linear-gradient(135deg, #2563eb, #1d4ed8); color:#fff; font-weight:800; border:none; padding:8px 14px; border-radius:6px; cursor:pointer;" title="Save IP & Reconnect PTP/IP Session">
                 🔗 Connect IP
               </button>
@@ -4014,7 +4034,7 @@ export function createRemoteWatchPage(): string {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Gaviru E400D Cam — WebRTC & Remote Stream Watcher</title>
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" crossorigin="anonymous" onerror="console.warn('PeerJS CDN offline — WebRTC disabled')"></script>
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #07090c; color: #f3f4f6; }
     body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; }

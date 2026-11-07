@@ -208,6 +208,7 @@ export async function connectCanonLiveView(
   let activeBindings: ActiveSessionBindings | null = null;
   let activeConnectingTransports: { command?: MtpTransport; event?: MtpTransport } | null = null;
   let outerSharedSource: SharedFrameSource | null = null;
+  let connectionAbortController = new AbortController();
   let abortActiveAf = false;
   let afInProgress = false;
 
@@ -743,6 +744,9 @@ export async function connectCanonLiveView(
       options.host = cleanIp;
       state.lastCommand = `Target Camera IP set to ${cleanIp}`;
       state.lastCommandAt = new Date().toISOString();
+      // Abort current connection attempt immediately
+      connectionAbortController.abort();
+      connectionAbortController = new AbortController();
       if (activeConnectingTransports !== null) {
         try {
           activeConnectingTransports.command?.close();
@@ -774,7 +778,8 @@ export async function connectCanonLiveView(
         },
         (transports) => {
           activeConnectingTransports = transports;
-        }
+        },
+        () => connectionAbortController.signal
       );
     }
   });
@@ -796,9 +801,13 @@ async function connectCanonLiveViewWithRetry(
   state: CanonCameraState,
   outerSharedSource: SharedFrameSource | null,
   onBindings: (bindings: ActiveSessionBindings | null) => void,
-  onConnectingTransports?: (transports: { command?: MtpTransport; event?: MtpTransport } | null) => void
+  onConnectingTransports?: (transports: { command?: MtpTransport; event?: MtpTransport } | null) => void,
+  getAbortSignal?: () => AbortSignal
 ): Promise<CanonLiveViewConnection> {
   while (true) {
+    // Check if abort was signalled (IP changed) — if so, keep looping with new options.host
+    const signal = getAbortSignal?.();
+
     if (
       options.localAddress !== undefined &&
       !isLocalAddressAvailable(options.localAddress)
@@ -808,10 +817,11 @@ async function connectCanonLiveViewWithRetry(
     }
 
     try {
-      return await connectCanonLiveViewOnce(options, state, outerSharedSource, onBindings, onConnectingTransports);
+      return await connectCanonLiveViewOnce(options, state, outerSharedSource, onBindings, onConnectingTransports, signal);
     } catch (error) {
       state.connected = false;
       state.lastError = error instanceof Error ? error.message : String(error);
+      // Short delay before retry — uses current options.host (may have been updated by setCameraHost)
       await delay(options.retryDelayMs ?? 800);
     }
   }
@@ -822,17 +832,29 @@ async function connectCanonLiveViewOnce(
   state: CanonCameraState,
   outerSharedSource: SharedFrameSource | null,
   onBindings: (bindings: ActiveSessionBindings | null) => void,
-  onConnectingTransports?: (transports: { command?: MtpTransport; event?: MtpTransport } | null) => void
+  onConnectingTransports?: (transports: { command?: MtpTransport; event?: MtpTransport } | null) => void,
+  abortSignal?: AbortSignal
 ): Promise<CanonLiveViewConnection> {
+  // Check if already aborted before even starting
+  if (abortSignal?.aborted) {
+    throw new Error("Connection aborted: IP changed");
+  }
   const transportOptions = {
     host: options.host,
     port: options.port,
-    timeoutMs: options.timeoutMs ?? 5_000,
+    timeoutMs: options.timeoutMs ?? 3_000,
     ...(options.localAddress === undefined ? {} : { localAddress: options.localAddress })
   };
   const commandTransport = new MtpTransport(transportOptions);
   const eventTransport = new MtpTransport(transportOptions);
   onConnectingTransports?.({ command: commandTransport, event: eventTransport });
+
+  // If abort fires while connecting, destroy sockets immediately
+  const onAbort = () => {
+    try { commandTransport.close(); } catch { /* ignore */ }
+    try { eventTransport.close(); } catch { /* ignore */ }
+  };
+  abortSignal?.addEventListener("abort", onAbort);
 
   try {
     console.log(`Canon: opening command channel to ${options.host}:${options.port}`);
@@ -1174,6 +1196,7 @@ async function connectCanonLiveViewOnce(
         state.connected = false;
         onBindings(null);
         onConnectingTransports?.(null);
+        abortSignal?.removeEventListener("abort", onAbort);
         eventChannel.close();
         session.close();
       }
@@ -1182,6 +1205,7 @@ async function connectCanonLiveViewOnce(
     state.connected = false;
     onBindings(null);
     onConnectingTransports?.(null);
+    abortSignal?.removeEventListener("abort", onAbort);
     eventTransport.close();
     commandTransport.close();
     throw error;
