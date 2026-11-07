@@ -18,22 +18,42 @@ export const DEFAULT_PERSISTENT_CONFIG: PersistentCameraConfig = {
   autoDiscover: true
 };
 
+import { dirname, join } from "node:path";
+
+export function getPersistentConfigCandidates(): string[] {
+  const paths: string[] = [];
+  try {
+    const exeDir = dirname(process.execPath);
+    paths.push(join(exeDir, "camera-config.json"));
+  } catch {}
+  if (process.env.LOCALAPPDATA) {
+    paths.push(join(process.env.LOCALAPPDATA, "Programs", "GaviruCamStudio", "camera-config.json"));
+    paths.push(join(process.env.LOCALAPPDATA, "GaviruCamStudio", "camera-config.json"));
+  }
+  paths.push(join(process.cwd(), "camera-config.json"));
+  return [...new Set(paths)];
+}
+
 export function getPersistentConfigPath(): string {
+  for (const p of getPersistentConfigCandidates()) {
+    if (existsSync(p)) return p;
+  }
   return join(process.cwd(), "camera-config.json");
 }
 
 export function loadPersistentConfig(): PersistentCameraConfig {
-  try {
-    const configPath = getPersistentConfigPath();
-    if (existsSync(configPath)) {
-      const parsed = JSON.parse(readFileSync(configPath, "utf-8")) as Partial<PersistentCameraConfig>;
-      return {
-        ...DEFAULT_PERSISTENT_CONFIG,
-        ...parsed
-      };
+  for (const p of getPersistentConfigCandidates()) {
+    try {
+      if (existsSync(p)) {
+        const parsed = JSON.parse(readFileSync(p, "utf-8")) as Partial<PersistentCameraConfig>;
+        return {
+          ...DEFAULT_PERSISTENT_CONFIG,
+          ...parsed
+        };
+      }
+    } catch {
+      // Try next candidate
     }
-  } catch {
-    // Ignore and fallback
   }
   return { ...DEFAULT_PERSISTENT_CONFIG };
 }
@@ -44,10 +64,13 @@ export function savePersistentConfig(patch: Partial<PersistentCameraConfig>): Pe
     ...current,
     ...patch
   };
-  try {
-    writeFileSync(getPersistentConfigPath(), JSON.stringify(updated, null, 2), "utf-8");
-  } catch {
-    // Ignore write failure on readonly filesystems
+  const jsonStr = JSON.stringify(updated, null, 2);
+  for (const p of getPersistentConfigCandidates()) {
+    try {
+      writeFileSync(p, jsonStr, "utf-8");
+    } catch {
+      // Ignore write failure on readonly filesystems
+    }
   }
   return updated;
 }

@@ -811,7 +811,7 @@ async function handleHttpRequest(
       "Cache-Control": "no-store",
       "Content-Type": "text/html; charset=utf-8"
     });
-    response.end(createStudioControlPage());
+    response.end(createStudioControlPage(getCameraIp()));
     return;
   }
 
@@ -1121,7 +1121,8 @@ export function createStatusPage(): string {
 </html>`;
 }
 
-export function createStudioControlPage(): string {
+export function createStudioControlPage(initialIp: string = "192.168.1.145"): string {
+  const safeIp = (initialIp || "192.168.1.145").replace(/["'<>]/g, "").trim() || "192.168.1.145";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -1601,6 +1602,53 @@ export function createStudioControlPage(): string {
       border-color: rgba(255,255,255,0.15);
     }
 
+    .master-tab-bar {
+      background: rgba(12, 15, 23, 0.96);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 16px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+      position: sticky;
+      top: 64px;
+      z-index: 35;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    }
+    .nav-tab-btn {
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer !important;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .nav-tab-btn:hover {
+      background: #1e2536;
+      color: #fff;
+      border-color: #3b82f6;
+    }
+    .nav-tab-btn:active {
+      transform: scale(0.96);
+    }
+    .nav-tab-btn.active {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: #fff;
+      border-color: #60a5fa;
+      box-shadow: 0 2px 10px rgba(37, 99, 235, 0.4);
+    }
+
     .studio-section {
       background: var(--panel);
       border: 1px solid var(--border);
@@ -1739,7 +1787,7 @@ export function createStudioControlPage(): string {
       <span class="status-pill" id="queueBadge" style="background:rgba(59,130,246,0.15);color:#93c5fd;border-color:rgba(59,130,246,0.4);">QUEUE: 0</span>
       <button id="btnTopCameraIp" onclick="focusCameraIpInput()" style="display:inline-flex; align-items:center; gap:6px; background:rgba(59,130,246,0.18); border:1px solid rgba(59,130,246,0.5); color:#93c5fd; font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; cursor:pointer;" title="Click to View or Change Camera Wi-Fi IP Address">
         <span>📡 Cam IP:</span>
-        <span id="topCameraIpDisplay">192.168.1.145</span>
+        <span id="topCameraIpDisplay">${safeIp}</span>
       </button>
     </div>
 
@@ -1785,6 +1833,28 @@ export function createStudioControlPage(): string {
       </button>
     </div>
   </header>
+
+  <!-- Master Studio Navigation Tab Bar (Top Navigation with Live View Tab) -->
+  <nav class="master-tab-bar">
+    <button class="nav-tab-btn active" data-tab="all" onclick="switchMasterStudioTab('all', this)">
+      🏠 Home Studio (All Panels)
+    </button>
+    <button class="nav-tab-btn" data-tab="live" onclick="switchMasterStudioTab('live', this)">
+      🎥 Live View (ලයිව් මොනිටර්)
+    </button>
+    <button class="nav-tab-btn" data-tab="connection" onclick="switchMasterStudioTab('connection', this)">
+      📡 Cam Wi-Fi IP (කැමරා IP)
+    </button>
+    <button class="nav-tab-btn" data-tab="focus" onclick="switchMasterStudioTab('focus', this)">
+      🎯 Focus & LCD (ෆෝකස්)
+    </button>
+    <button class="nav-tab-btn" data-tab="exposure" onclick="switchMasterStudioTab('exposure', this)">
+      ☀️ Exposure & Colors (ආලෝකය)
+    </button>
+    <button class="nav-tab-btn" data-tab="remote" onclick="switchMasterStudioTab('remote', this)">
+      🎬 OBS Studio & Links (OBS ලින්ක්)
+    </button>
+  </nav>
 
   <!-- Main Studio Workspace -->
   <div class="workspace">
@@ -1988,11 +2058,11 @@ export function createStudioControlPage(): string {
     <!-- Right Studio Controls Sidebar -->
     <aside class="sidebar">
       <div class="tab-bar">
-        <button class="tab-btn active" onclick="filterStudioTab('all', this)">All Panels</button>
-        <button class="tab-btn" data-tab-name="connection" onclick="filterStudioTab('connection', this)">📡 Cam IP</button>
-        <button class="tab-btn" onclick="filterStudioTab('focus', this)">🎯 Focus & LCD</button>
-        <button class="tab-btn" onclick="filterStudioTab('exposure', this)">☀️ Exposure</button>
-        <button class="tab-btn" onclick="filterStudioTab('remote', this)">📡 Stream</button>
+        <button class="tab-btn active" data-tab="all" onclick="switchMasterStudioTab('all', this)">All Panels</button>
+        <button class="tab-btn" data-tab="connection" onclick="switchMasterStudioTab('connection', this)">📡 Cam IP</button>
+        <button class="tab-btn" data-tab="focus" onclick="switchMasterStudioTab('focus', this)">🎯 Focus & LCD</button>
+        <button class="tab-btn" data-tab="exposure" onclick="switchMasterStudioTab('exposure', this)">☀️ Exposure</button>
+        <button class="tab-btn" data-tab="remote" onclick="switchMasterStudioTab('remote', this)">📡 Stream</button>
       </div>
 
       <!-- 0. Canon Camera Wi-Fi IP & Connection Settings -->
@@ -2016,7 +2086,7 @@ export function createStudioControlPage(): string {
               <span class="val" id="ipConnectionStatus" style="color:#34d399; font-weight:700;">Ready</span>
             </div>
             <div style="display:flex; gap:6px;">
-              <input type="text" id="inputTargetCameraIp" placeholder="e.g. 192.168.1.145 or 192.168.1.2" value="192.168.1.145" style="flex:1; font-family:monospace; font-size:13px; font-weight:700; background:#0b0f19; border:1.5px solid #3b82f6; color:#f8fafc; padding:8px 12px; border-radius:6px; cursor:text;" onkeydown="if(event.key==='Enter'||event.keyCode===13){applyCustomCameraIp();}">
+              <input type="text" id="inputTargetCameraIp" placeholder="e.g. 192.168.1.145 or 192.168.1.2" value="${safeIp}" style="flex:1; font-family:monospace; font-size:13px; font-weight:700; background:#0b0f19; border:1.5px solid #3b82f6; color:#f8fafc; padding:8px 12px; border-radius:6px; cursor:text;" onkeydown="if(event.key==='Enter'||event.keyCode===13){applyCustomCameraIp();}">
               <button id="btnApplyCameraIp" onclick="applyCustomCameraIp()" style="background:linear-gradient(135deg, #2563eb, #1d4ed8); color:#fff; font-weight:800; border:none; padding:8px 14px; border-radius:6px; cursor:pointer;" title="Save IP & Reconnect PTP/IP Session">
                 🔗 Connect IP
               </button>
@@ -2031,8 +2101,8 @@ export function createStudioControlPage(): string {
             <button onclick="quickSetCameraIp('192.168.1.2')" style="background:#1e293b; border:1px solid #475569; color:#cbd5e1; font-size:11px; padding:7px 10px; border-radius:6px; cursor:pointer;" title="Direct Camera Hotspot / AP Mode IP">
               📷 192.168.1.2 (Cam AP)
             </button>
-            <button onclick="quickSetCameraIp('192.168.1.145')" style="background:#1e293b; border:1px solid #475569; color:#cbd5e1; font-size:11px; padding:7px 10px; border-radius:6px; cursor:pointer;" title="Router Wi-Fi Default IP">
-              🏠 192.168.1.145
+            <button onclick="quickSetCameraIp('${safeIp}')" style="background:#1e293b; border:1px solid #475569; color:#cbd5e1; font-size:11px; padding:7px 10px; border-radius:6px; cursor:pointer;" title="Router Wi-Fi Default IP">
+              🏠 ${safeIp}
             </button>
           </div>
 
@@ -2923,12 +2993,13 @@ export function createStudioControlPage(): string {
         document.getElementById('queueBadge').textContent = 'QUEUE: ' + (cam.queueDepth ?? 0);
 
         if (data.currentCameraIp) {
+          const savedCustom = localStorage.getItem('gaviru_custom_camera_ip');
           const topIp = document.getElementById('topCameraIpDisplay');
-          if (topIp && topIp.textContent !== data.currentCameraIp) {
-            topIp.textContent = data.currentCameraIp;
+          if (topIp) {
+            topIp.textContent = savedCustom || data.currentCameraIp;
           }
           const inp = document.getElementById('inputTargetCameraIp');
-          if (inp && document.activeElement !== inp && !inp.getAttribute('data-user-editing')) {
+          if (inp && !inp.hasAttribute('data-user-modified') && !savedCustom && document.activeElement !== inp) {
             inp.value = data.currentCameraIp;
           }
         }
@@ -3633,12 +3704,25 @@ export function createStudioControlPage(): string {
     }
 
     async function setStreamViewMode(mode) {
-      await fetch('/api/screen/mode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode })
-      });
-      await fetchStudioState();
+      const sensorBtn = document.getElementById('modeSensorBtn');
+      const screenBtn = document.getElementById('modeScreenBtn');
+      if (mode === 'sensor') {
+        if (sensorBtn) sensorBtn.classList.add('active');
+        if (screenBtn) screenBtn.classList.remove('active');
+        showStudioToast('🎥 Live View Sensor Stream mode active', 'info');
+      } else {
+        if (screenBtn) screenBtn.classList.add('active');
+        if (sensorBtn) sensorBtn.classList.remove('active');
+        showStudioToast('📱 Camera Screen / Menu Preview mode active', 'info');
+      }
+      try {
+        await fetch('/api/screen/mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode })
+        });
+        await fetchStudioState();
+      } catch {}
     }
 
     async function applyPreset(presetId) {
@@ -3832,26 +3916,65 @@ export function createStudioControlPage(): string {
       if (body) body.classList.toggle('collapsed');
     }
 
-    function filterStudioTab(tab, btn) {
-      document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
-      if (btn) btn.classList.add('active');
-      document.querySelectorAll('.studio-section').forEach((sec) => {
-        if (tab === 'all' || sec.getAttribute('data-tab') === tab) {
-          sec.style.display = 'block';
+    function switchMasterStudioTab(tab, btn) {
+      document.querySelectorAll('.nav-tab-btn, .tab-btn').forEach((b) => {
+        if (b.getAttribute('data-tab') === tab || (tab === 'all' && (b.getAttribute('data-tab') === 'all' || b.textContent.includes('All')))) {
+          b.classList.add('active');
         } else {
-          sec.style.display = 'none';
+          b.classList.remove('active');
         }
       });
+
+      const monitorCard = document.querySelector('.monitor-card');
+      const sidebar = document.querySelector('.sidebar');
+      const workspace = document.querySelector('.workspace');
+
+      if (tab === 'live') {
+        if (monitorCard) monitorCard.style.display = 'flex';
+        if (sidebar) sidebar.style.display = 'none';
+        if (workspace) workspace.style.gridTemplateColumns = '1fr';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        showStudioToast('🎥 Live Monitor Mode: Focusing on camera live preview', 'info');
+        return;
+      }
+
+      if (sidebar) sidebar.style.display = 'flex';
+      if (workspace) {
+        if (window.innerWidth > 1140) {
+          workspace.style.gridTemplateColumns = 'minmax(0, 1fr) 425px';
+        } else {
+          workspace.style.gridTemplateColumns = '1fr';
+        }
+      }
+
+      if (tab === 'all') {
+        if (monitorCard) monitorCard.style.display = 'flex';
+        document.querySelectorAll('.studio-section').forEach((sec) => {
+          sec.style.display = 'block';
+        });
+      } else {
+        if (monitorCard) monitorCard.style.display = 'flex';
+        document.querySelectorAll('.studio-section').forEach((sec) => {
+          if (sec.getAttribute('data-tab') === tab) {
+            sec.style.display = 'block';
+            const body = sec.querySelector('.section-body');
+            if (body) body.classList.remove('collapsed');
+          } else {
+            sec.style.display = 'none';
+          }
+        });
+        if (window.innerWidth <= 1140 && sidebar) {
+          sidebar.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    }
+
+    function filterStudioTab(tab, btn) {
+      switchMasterStudioTab(tab, btn);
     }
 
     function focusCameraIpInput() {
-      const connBtn = document.querySelector('.tab-btn[data-tab-name="connection"]');
-      if (connBtn) {
-        filterStudioTab('connection', connBtn);
-      } else {
-        const allBtn = document.querySelector('.tab-btn');
-        if (allBtn) filterStudioTab('all', allBtn);
-      }
+      switchMasterStudioTab('connection', document.querySelector('.nav-tab-btn[data-tab="connection"]'));
       const inp = document.getElementById('inputTargetCameraIp');
       if (inp) {
         inp.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -3860,12 +3983,28 @@ export function createStudioControlPage(): string {
       }
     }
 
+    function onCameraIpInputChanged() {
+      const inp = document.getElementById('inputTargetCameraIp');
+      if (!inp) return;
+      const val = inp.value.trim();
+      inp.setAttribute('data-user-modified', 'true');
+      if (val) {
+        localStorage.setItem('gaviru_custom_camera_ip', val);
+        const topIp = document.getElementById('topCameraIpDisplay');
+        if (topIp) topIp.textContent = val;
+      }
+    }
+
     function quickSetCameraIp(ip) {
       const inp = document.getElementById('inputTargetCameraIp');
       if (inp) {
         inp.value = ip;
-        applyCustomCameraIp();
+        inp.setAttribute('data-user-modified', 'true');
+        localStorage.setItem('gaviru_custom_camera_ip', ip);
       }
+      const topIp = document.getElementById('topCameraIpDisplay');
+      if (topIp) topIp.textContent = ip;
+      applyCustomCameraIp();
     }
 
     async function applyCustomCameraIp() {
@@ -3875,17 +4014,22 @@ export function createStudioControlPage(): string {
         showStudioToast('කරුණාකර නිවැරදි IP ලිපිනයක් ඇතුළත් කරන්න (Please enter a valid IP address)', 'warning');
         return;
       }
+      localStorage.setItem('gaviru_custom_camera_ip', ip);
+      if (inp) inp.setAttribute('data-user-modified', 'true');
+      const topIp = document.getElementById('topCameraIpDisplay');
+      if (topIp) topIp.textContent = ip;
       const btn = document.getElementById('btnApplyCameraIp');
       const st = document.getElementById('ipConnectionStatus');
       const origText = btn ? btn.textContent : '';
       if (btn) {
-        btn.textContent = '⏳ Checking...';
+        btn.textContent = '⏳ Connecting to ' + ip + '...';
         btn.disabled = true;
       }
       if (st) {
-        st.textContent = 'Probing ' + ip + '...';
+        st.textContent = 'Connecting ' + ip + '...';
         st.style.color = '#fbbf24';
       }
+      showStudioToast('📡 Target Camera IP set to ' + ip + '. Connecting PTP/IP session...', 'info');
 
       try {
         const res = await fetch('/api/camera/set-ip', {
@@ -3895,7 +4039,6 @@ export function createStudioControlPage(): string {
         });
         const data = await res.json();
         if (data.ok) {
-          const topIp = document.getElementById('topCameraIpDisplay');
           if (topIp) topIp.textContent = ip;
           if (data.reachable) {
             if (st) {
@@ -3973,15 +4116,22 @@ export function createStudioControlPage(): string {
 
     document.addEventListener('DOMContentLoaded', () => {
       const ipInp = document.getElementById('inputTargetCameraIp');
+      const savedIp = localStorage.getItem('gaviru_custom_camera_ip');
+      if (savedIp) {
+        if (ipInp) {
+          ipInp.value = savedIp;
+          ipInp.setAttribute('data-user-modified', 'true');
+        }
+        const topIp = document.getElementById('topCameraIpDisplay');
+        if (topIp) topIp.textContent = savedIp;
+      }
       if (ipInp) {
-        ipInp.addEventListener('focus', () => ipInp.setAttribute('data-user-editing', 'true'));
-        ipInp.addEventListener('blur', () => {
-          setTimeout(() => ipInp.removeAttribute('data-user-editing'), 1500);
-        });
+        ipInp.addEventListener('input', onCameraIpInputChanged);
+        ipInp.addEventListener('change', onCameraIpInputChanged);
         ipInp.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
-            ipInp.removeAttribute('data-user-editing');
+            onCameraIpInputChanged();
             applyCustomCameraIp();
           }
         });
