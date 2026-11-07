@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { exec } from "node:child_process";
 
 export interface PersistentCameraConfig {
@@ -17,8 +17,6 @@ export const DEFAULT_PERSISTENT_CONFIG: PersistentCameraConfig = {
   listenPort: 8787,
   autoDiscover: true
 };
-
-import { dirname, join } from "node:path";
 
 export function getPersistentConfigCandidates(): string[] {
   const paths: string[] = [];

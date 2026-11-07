@@ -1167,8 +1167,7 @@ export function createStudioControlPage(initialIp: string = "192.168.1.145"): st
 
     /* Luxury Studio Top Bar */
     .topbar {
-      background: rgba(17, 21, 30, 0.92);
-      backdrop-filter: blur(12px);
+      background: #0e121b;
       border-bottom: 1px solid var(--border);
       padding: 12px 20px;
       display: flex;
@@ -1176,10 +1175,9 @@ export function createStudioControlPage(initialIp: string = "192.168.1.145"): st
       justify-content: space-between;
       gap: 14px;
       flex-wrap: wrap;
-      position: sticky;
-      top: 0;
-      z-index: 40;
-      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+      position: relative;
+      z-index: 60;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
     }
     .brand-group { display: flex; align-items: center; gap: 12px; }
     .canon-logo {
@@ -1564,7 +1562,7 @@ export function createStudioControlPage(initialIp: string = "192.168.1.145"): st
     }
     .tab-bar {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(6, 1fr);
       gap: 4px;
       background: var(--panel);
       padding: 6px;
@@ -1603,18 +1601,16 @@ export function createStudioControlPage(initialIp: string = "192.168.1.145"): st
     }
 
     .master-tab-bar {
-      background: rgba(12, 15, 23, 0.96);
-      backdrop-filter: blur(10px);
-      border-bottom: 1px solid var(--border);
-      padding: 8px 16px;
+      background: #090c13;
+      border-bottom: 2px solid #1e293b;
+      padding: 10px 16px;
       display: flex;
       gap: 8px;
       align-items: center;
       flex-wrap: wrap;
       justify-content: center;
-      position: sticky;
-      top: 64px;
-      z-index: 35;
+      position: relative;
+      z-index: 50;
       box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     }
     .nav-tab-btn {
@@ -2058,11 +2054,12 @@ export function createStudioControlPage(initialIp: string = "192.168.1.145"): st
     <!-- Right Studio Controls Sidebar -->
     <aside class="sidebar">
       <div class="tab-bar">
-        <button class="tab-btn active" data-tab="all" onclick="switchMasterStudioTab('all', this)">All Panels</button>
-        <button class="tab-btn" data-tab="connection" onclick="switchMasterStudioTab('connection', this)">📡 Cam IP</button>
-        <button class="tab-btn" data-tab="focus" onclick="switchMasterStudioTab('focus', this)">🎯 Focus & LCD</button>
-        <button class="tab-btn" data-tab="exposure" onclick="switchMasterStudioTab('exposure', this)">☀️ Exposure</button>
-        <button class="tab-btn" data-tab="remote" onclick="switchMasterStudioTab('remote', this)">📡 Stream</button>
+        <button class="tab-btn active" data-tab="all" onclick="switchMasterStudioTab('all', this)" title="Show All Control Panels">🏠 All</button>
+        <button class="tab-btn" data-tab="live" onclick="switchMasterStudioTab('live', this)" title="Full View Live Camera Monitor">🎥 Live</button>
+        <button class="tab-btn" data-tab="connection" onclick="switchMasterStudioTab('connection', this)" title="Canon Camera Wi-Fi IP Settings">📡 IP</button>
+        <button class="tab-btn" data-tab="focus" onclick="switchMasterStudioTab('focus', this)" title="Focus & Physical LCD Display Controls">🎯 Focus</button>
+        <button class="tab-btn" data-tab="exposure" onclick="switchMasterStudioTab('exposure', this)" title="Exposure & Lighting Presets">☀️ Exp</button>
+        <button class="tab-btn" data-tab="remote" onclick="switchMasterStudioTab('remote', this)" title="OBS Studio 4K Output & Links">🎬 Stream</button>
       </div>
 
       <!-- 0. Canon Camera Wi-Fi IP & Connection Settings -->
@@ -3918,7 +3915,8 @@ export function createStudioControlPage(initialIp: string = "192.168.1.145"): st
 
     function switchMasterStudioTab(tab, btn) {
       document.querySelectorAll('.nav-tab-btn, .tab-btn').forEach((b) => {
-        if (b.getAttribute('data-tab') === tab || (tab === 'all' && (b.getAttribute('data-tab') === 'all' || b.textContent.includes('All')))) {
+        const btnTab = b.getAttribute('data-tab');
+        if (btnTab === tab || (tab === 'all' && (btnTab === 'all' || b.textContent.includes('All')))) {
           b.classList.add('active');
         } else {
           b.classList.remove('active');
@@ -3934,7 +3932,7 @@ export function createStudioControlPage(initialIp: string = "192.168.1.145"): st
         if (sidebar) sidebar.style.display = 'none';
         if (workspace) workspace.style.gridTemplateColumns = '1fr';
         window.scrollTo({ top: 0, behavior: 'smooth' });
-        showStudioToast('🎥 Live Monitor Mode: Focusing on camera live preview', 'info');
+        showStudioToast('🎥 Live Monitor: සම්පූර්ණ තිරයේ සජීවී දසුන සක්‍රියයි', 'info');
         return;
       }
 
@@ -3952,19 +3950,39 @@ export function createStudioControlPage(initialIp: string = "192.168.1.145"): st
         document.querySelectorAll('.studio-section').forEach((sec) => {
           sec.style.display = 'block';
         });
+        showStudioToast('🏠 Home Studio: සියලුම පාලන පැනල (All Panels) සක්‍රියයි', 'success');
       } else {
         if (monitorCard) monitorCard.style.display = 'flex';
+        let foundSection = null;
         document.querySelectorAll('.studio-section').forEach((sec) => {
           if (sec.getAttribute('data-tab') === tab) {
             sec.style.display = 'block';
+            if (!foundSection) foundSection = sec;
             const body = sec.querySelector('.section-body');
             if (body) body.classList.remove('collapsed');
           } else {
             sec.style.display = 'none';
           }
         });
-        if (window.innerWidth <= 1140 && sidebar) {
+
+        if (foundSection) {
+          foundSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else if (sidebar && window.innerWidth <= 1140) {
           sidebar.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        if (tab === 'remote') {
+          showStudioToast('🎬 OBS Studio & Stream: ලයිව් ස්ට්‍රීම් සහ OBS සෙටින්ග්ස් පැනලය සක්‍රියයි', 'success');
+        } else if (tab === 'connection') {
+          showStudioToast('📡 Cam Wi-Fi IP: කැමරා IP ලිපින සැකසුම් පැනලය සක්‍රියයි', 'info');
+          const inp = document.getElementById('inputTargetCameraIp');
+          if (inp) {
+            setTimeout(() => { inp.focus(); inp.select(); }, 150);
+          }
+        } else if (tab === 'focus') {
+          showStudioToast('🎯 Focus & LCD: ෆෝකස් සහ කැමරා තිර පාලන පැනලය සක්‍රියයි', 'info');
+        } else if (tab === 'exposure') {
+          showStudioToast('☀️ Exposure: ආලෝකය, Exposure සහ Flash පැනලය සක්‍රියයි', 'info');
         }
       }
     }
@@ -4114,7 +4132,7 @@ export function createStudioControlPage(initialIp: string = "192.168.1.145"): st
       }
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
+    function initCameraIpInputs() {
       const ipInp = document.getElementById('inputTargetCameraIp');
       const savedIp = localStorage.getItem('gaviru_custom_camera_ip');
       if (savedIp) {
@@ -4125,7 +4143,8 @@ export function createStudioControlPage(initialIp: string = "192.168.1.145"): st
         const topIp = document.getElementById('topCameraIpDisplay');
         if (topIp) topIp.textContent = savedIp;
       }
-      if (ipInp) {
+      if (ipInp && !ipInp._initEventsDone) {
+        ipInp._initEventsDone = true;
         ipInp.addEventListener('input', onCameraIpInputChanged);
         ipInp.addEventListener('change', onCameraIpInputChanged);
         ipInp.addEventListener('keydown', (e) => {
@@ -4136,7 +4155,12 @@ export function createStudioControlPage(initialIp: string = "192.168.1.145"): st
           }
         });
       }
-    });
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initCameraIpInputs);
+    } else {
+      initCameraIpInputs();
+    }
 
     function copyText(id) {
       const text = document.getElementById(id).textContent;
@@ -4165,7 +4189,7 @@ export function createStudioControlPage(initialIp: string = "192.168.1.145"): st
         }
         deferredInstallPrompt = null;
       } else {
-        alert('📱 Android / iOS මත Install කර ගැනීමට:\n\n1. Google Chrome හෝ Safari browser එකේ මෙනුව (⋮ හෝ Share icon) ක්ලික් කරන්න.\n2. "Install app" හෝ "Add to Home screen" තෝරන්න.\n3. එවිට ඔබේ දුරකථනයේ වෙනම Mobile App එකක් ලෙස මෙය Install වේ!');
+        alert('📱 Android / iOS මත Install කර ගැනීමට:\\n\\n1. Google Chrome හෝ Safari browser එකේ මෙනුව (⋮ හෝ Share icon) ක්ලික් කරන්න.\\n2. "Install app" හෝ "Add to Home screen" තෝරන්න.\\n3. එවිට ඔබේ දුරකථනයේ වෙනම Mobile App එකක් ලෙස මෙය Install වේ!');
       }
     }
 
