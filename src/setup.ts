@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { exec, execSync, spawn } from "node:child_process";
-import embeddedAppExe from "../GaviruCamStudio-Full-Software/GaviruCamStudio.exe" with { type: "file" };
+import embeddedAppExe from "../GaviruCamStudio.exe" with { type: "file" };
 import embeddedAppIcon from "../assets/gaviru-cam.ico" with { type: "file" };
 
 function runQuiet(cmd: string): boolean {
@@ -656,6 +656,25 @@ async function startSetupWizardServer(): Promise<void> {
   openDesktopSetupWindow(`http://127.0.0.1:${port}/`);
 }
 
-startSetupWizardServer().catch(() => {
-  process.exit(1);
-});
+if (
+  process.argv.includes("--silent") ||
+  process.argv.includes("/S") ||
+  process.argv.includes("/s") ||
+  process.argv.includes("-s") ||
+  process.argv.includes("--install")
+) {
+  console.log("Gaviru E400D Cam Studio Pro — Silent Auto-Installation Mode");
+  performInstallation()
+    .then(() => {
+      console.log("✅ Installation completed successfully!");
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error("❌ Installation failed:", err);
+      process.exit(1);
+    });
+} else {
+  startSetupWizardServer().catch(() => {
+    process.exit(1);
+  });
+}
