@@ -431,6 +431,9 @@ public class MainActivity extends AppCompatActivity {
             "  if (!window.__realGUM && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {" +
             "    window.__realGUM = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);" +
             "  }" +
+            "  if (!window.__realEnumerate && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {" +
+            "    window.__realEnumerate = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);" +
+            "  }" +
             "  if (window.__canonShimInjected) return;" +
             "  window.__canonShimInjected = true;" +
             "  const canvas = document.createElement('canvas');" +
@@ -460,43 +463,94 @@ public class MainActivity extends AppCompatActivity {
             "    }" +
             "  }" +
             "  setInterval(update, 25);" +
-            "  function createStream() {" +
+            "  function createStream(constraints) {" +
             "    const vs = canvas.captureStream(30);" +
+            "    const audioConstraint = (constraints && constraints.audio !== undefined) ? constraints.audio : true;" +
+            "    if (audioConstraint === false) {" +
+            "      return Promise.resolve(new MediaStream([...vs.getVideoTracks()]));" +
+            "    }" +
             "    if (window.__realGUM) {" +
-            "      return window.__realGUM({ audio: {" +
-            "          echoCancellation: false," +
-            "          noiseSuppression: false," +
-            "          autoGainControl: false" +
-            "        }, video: false })" +
+            "      let reqAudio = true;" +
+            "      if (typeof audioConstraint === 'object') {" +
+            "        reqAudio = Object.assign({}, audioConstraint);" +
+            "        if (reqAudio.deviceId && (reqAudio.deviceId === 'default' || reqAudio.deviceId === 'headset_mic' || reqAudio.deviceId === 'builtin_mic')) {" +
+            "          delete reqAudio.deviceId;" +
+            "        }" +
+            "      }" +
+            "      return window.__realGUM({ audio: reqAudio, video: false })" +
             "        .then(function(micStream) {" +
             "          console.log('🎙️ Mic captured: ' + micStream.getAudioTracks().length + ' track(s)');" +
             "          return new MediaStream([...vs.getVideoTracks(), ...micStream.getAudioTracks()]);" +
             "        })" +
             "        .catch(function(err) {" +
-            "          console.warn('Mic capture failed: ' + err);" +
-            "          return new MediaStream([...vs.getVideoTracks()]);" +
+            "          console.warn('Selected mic failed, trying fallback: ' + err);" +
+            "          return window.__realGUM({ audio: true, video: false })" +
+            "            .then(function(fb) {" +
+            "              return new MediaStream([...vs.getVideoTracks(), ...fb.getAudioTracks()]);" +
+            "            })" +
+            "            .catch(function() {" +
+            "              return new MediaStream([...vs.getVideoTracks()]);" +
+            "            });" +
             "        });" +
             "    }" +
             "    return Promise.resolve(new MediaStream([...vs.getVideoTracks()]));" +
             "  }" +
             "  if (!navigator.mediaDevices) navigator.mediaDevices = {};" +
-            "  navigator.mediaDevices.enumerateDevices = function() {" +
-            "    return Promise.resolve([{" +
+            "  navigator.mediaDevices.enumerateDevices = async function() {" +
+            "    let realList = [];" +
+            "    try {" +
+            "      if (window.__realEnumerate) {" +
+            "        realList = await window.__realEnumerate();" +
+            "      }" +
+            "    } catch(e) {}" +
+            "    const list = [];" +
+            "    list.push({" +
             "      deviceId: 'canon-eos-4000d'," +
             "      kind: 'videoinput'," +
-            "      label: 'Canon EOS 4000D DSLR (Gaviru Cam)'," +
-            "      groupId: 'canon-group'," +
+            "      label: '📷 Canon EOS 4000D DSLR (Gaviru Cam)'," +
+            "      groupId: 'canon-video-group'," +
             "      toJSON: function() { return this; }" +
-            "    }]);" +
+            "    });" +
+            "    if (realList && realList.length > 0) {" +
+            "      for (let i = 0; i < realList.length; i++) {" +
+            "        const d = realList[i];" +
+            "        if (d.kind === 'audioinput') {" +
+            "          list.push({" +
+            "            deviceId: d.deviceId || ('audio_' + i)," +
+            "            kind: 'audioinput'," +
+            "            label: d.label || ('🎙️ Microphone ' + (i + 1))," +
+            "            groupId: d.groupId || 'audio-group'," +
+            "            toJSON: function() { return this; }" +
+            "          });" +
+            "        } else if (d.kind === 'audiooutput') {" +
+            "          list.push(d);" +
+            "        }" +
+            "      }" +
+            "    }" +
+            "    list.push({" +
+            "      deviceId: 'headset_mic'," +
+            "      kind: 'audioinput'," +
+            "      label: '🎧 Earphone Jack Mic (3.5mm Headset)'," +
+            "      groupId: 'earphone-group'," +
+            "      toJSON: function() { return this; }" +
+            "    });" +
+            "    list.push({" +
+            "      deviceId: 'builtin_mic'," +
+            "      kind: 'audioinput'," +
+            "      label: '📱 Phone Built-in Microphone'," +
+            "      groupId: 'phone-group'," +
+            "      toJSON: function() { return this; }" +
+            "    });" +
+            "    return list;" +
             "  };" +
             "  navigator.mediaDevices.getUserMedia = function(constraints) {" +
-            "    return createStream();" +
+            "    return createStream(constraints);" +
             "  };" +
             "  navigator.mediaDevices.getDisplayMedia = function(constraints) {" +
-            "    return createStream();" +
+            "    return createStream(constraints);" +
             "  };" +
             "  navigator.getUserMedia = function(c, s, e) {" +
-            "    createStream().then(function(st) { if (s) s(st); }).catch(function(err) { if (e) e(err); });" +
+            "    createStream(c).then(function(st) { if (s) s(st); }).catch(function(err) { if (e) e(err); });" +
             "  };" +
             "  navigator.webkitGetUserMedia = navigator.getUserMedia;" +
             "  setInterval(function() {" +
@@ -509,7 +563,7 @@ public class MainActivity extends AppCompatActivity {
             "      }" +
             "    }" +
             "  }, 500);" +
-            "  console.log('✓ Canon Webcam Shim armed — real mic enabled');" +
+            "  console.log('✓ Canon Webcam Shim armed — all mics enumerated & selectable');" +
             "})();";
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
