@@ -738,7 +738,7 @@ public class MainActivity extends AppCompatActivity {
         if (isBroadcastingToObs) {
             btnStreamObs.setText("⏹ Stop Canon OBS");
             btnStreamObs.setBackgroundTintList(ColorStateList.valueOf(0xFFF59E0B));
-            String vdoPushUrl = "https://vdo.ninja/?push=" + roomName + "&webcam&autostart&noaudio&videobitrate=6000&fps=30";
+            String vdoPushUrl = "https://vdo.ninja/?push=" + roomName + "&webcam&autostart&videobitrate=6000&audiobitrate=128&fps=30";
             vdoWebView.loadUrl(vdoPushUrl);
 
             // Automatically switch to VDO screen so user can confirm connection and click start if needed
@@ -847,8 +847,14 @@ public class MainActivity extends AppCompatActivity {
     private void injectCanonWebcamShim(WebView view) {
         String js =
             "(function() {" +
+            // ── Save REAL getUserMedia BEFORE we override it ──────────────────
+            "  if (!window.__realGUM && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {" +
+            "    window.__realGUM = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);" +
+            "  }" +
+            // ── De-duplicate injection ────────────────────────────────────────
             "  if (window.__canonShimInjected) return;" +
             "  window.__canonShimInjected = true;" +
+            // ── Canon canvas (video source) ───────────────────────────────────
             "  const canvas = document.createElement('canvas');" +
             "  canvas.width = 1280; canvas.height = 720;" +
             "  const ctx = canvas.getContext('2d');" +
@@ -876,23 +882,29 @@ public class MainActivity extends AppCompatActivity {
             "    }" +
             "  }" +
             "  setInterval(update, 25);" +
+            // ── Create stream: Canon canvas video + earphone jack mic audio ───
             "  function createStream() {" +
             "    const vs = canvas.captureStream(30);" +
-            "    let audioTracks = [];" +
-            "    try {" +
-            "      const AC = window.AudioContext || window.webkitAudioContext;" +
-            "      if (AC) {" +
-            "        const actx = new AC();" +
-            "        const osc = actx.createOscillator();" +
-            "        const dst = actx.createMediaStreamDestination();" +
-            "        const gain = actx.createGain();" +
-            "        gain.gain.value = 0;" +
-            "        osc.connect(gain); gain.connect(dst); osc.start();" +
-            "        audioTracks = dst.stream.getAudioTracks();" +
-            "      }" +
-            "    } catch(e) {}" +
-            "    return new MediaStream([...vs.getVideoTracks(), ...audioTracks]);" +
+            "    if (window.__realGUM) {" +
+            // Capture audio from earphone jack mic (wired headset) or built-in mic
+            "      return window.__realGUM({ audio: {" +
+            "          echoCancellation: false," +
+            "          noiseSuppression: false," +
+            "          autoGainControl: false" +
+            "        }, video: false })" +
+            "        .then(function(micStream) {" +
+            "          console.log('🎙️ Mic captured: ' + micStream.getAudioTracks().length + ' track(s)');" +
+            "          return new MediaStream([...vs.getVideoTracks(), ...micStream.getAudioTracks()]);" +
+            "        })" +
+            "        .catch(function(err) {" +
+            "          console.warn('Mic capture failed, no audio: ' + err);" +
+            "          return new MediaStream([...vs.getVideoTracks()]);" +
+            "        });" +
+            "    }" +
+            // Fallback: video only (no mic available)
+            "    return Promise.resolve(new MediaStream([...vs.getVideoTracks()]));" +
             "  }" +
+            // ── Override mediaDevices ─────────────────────────────────────────
             "  if (!navigator.mediaDevices) navigator.mediaDevices = {};" +
             "  navigator.mediaDevices.enumerateDevices = function() {" +
             "    return Promise.resolve([{" +
@@ -904,13 +916,16 @@ public class MainActivity extends AppCompatActivity {
             "    }]);" +
             "  };" +
             "  navigator.mediaDevices.getUserMedia = function(constraints) {" +
-            "    return Promise.resolve(createStream());" +
+            "    return createStream();" +
             "  };" +
             "  navigator.mediaDevices.getDisplayMedia = function(constraints) {" +
-            "    return Promise.resolve(createStream());" +
+            "    return createStream();" +
             "  };" +
-            "  navigator.getUserMedia = function(c, s, e) { if (s) s(createStream()); };" +
+            "  navigator.getUserMedia = function(c, s, e) {" +
+            "    createStream().then(function(st) { if (s) s(st); }).catch(function(err) { if (e) e(err); });" +
+            "  };" +
             "  navigator.webkitGetUserMedia = navigator.getUserMedia;" +
+            // ── Auto-click Start/Join buttons on VDO.Ninja ───────────────────
             "  setInterval(function() {" +
             "    const btns = document.querySelectorAll('button, .action-button, [role=\"button\"]');" +
             "    for (let i = 0; i < btns.length; i++) {" +
@@ -921,7 +936,7 @@ public class MainActivity extends AppCompatActivity {
             "      }" +
             "    }" +
             "  }, 500);" +
-            "  console.log('✓ Canon Virtual Webcam Shim successfully armed');" +
+            "  console.log('✓ Canon Webcam Shim armed — earphone jack mic audio enabled');" +
             "})();";
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
