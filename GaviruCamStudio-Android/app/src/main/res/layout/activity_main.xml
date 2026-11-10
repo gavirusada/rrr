@@ -321,6 +321,17 @@
 
             </LinearLayout>
 
+            <!-- Audio Toggle Button (PC Studio Mic Audio → Phone Speaker/Earphone) -->
+            <Button
+                android:id="@+id/btnAudioToggle"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:text="🔇 Audio OFF  (PC Mic → Earphone)"
+                android:textSize="12sp"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#374151"
+                android:layout_marginBottom="6dp" />
+
             <!-- Focus Drive Control Buttons -->
             <LinearLayout
                 android:layout_width="match_parent"

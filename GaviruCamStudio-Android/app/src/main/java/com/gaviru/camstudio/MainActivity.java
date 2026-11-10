@@ -10,9 +10,13 @@ import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
+import android.media.MediaPlayer;
+import android.os.Handler;
+import android.os.Looper;
 import android.net.ConnectivityManager;
 import android.net.DhcpInfo;
 import android.net.Network;
@@ -96,6 +100,11 @@ public class MainActivity extends AppCompatActivity {
     private Network currentWifiNetwork = null;
 
     private boolean isBroadcastingToObs = false;
+
+    // ── Audio Streaming (PC Studio mic audio → Phone earphone) ──────────────
+    private MediaPlayer audioPlayer = null;
+    private boolean isAudioEnabled = false;
+    private Button btnAudioToggle = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -573,6 +582,120 @@ public class MainActivity extends AppCompatActivity {
 
         btnStreamObs.setOnClickListener(v -> toggleCanonObsStreaming(btnStreamObs));
         btnSettings.setOnClickListener(v -> showSettingsDialog());
+
+        // Audio toggle button (PC Studio mic → phone earphone/speaker)
+        btnAudioToggle = findViewById(R.id.btnAudioToggle);
+        if (btnAudioToggle != null) {
+            btnAudioToggle.setOnClickListener(v -> toggleAudioStream());
+        }
+    }
+
+    // ── Audio Streaming Methods ──────────────────────────────────────────────
+
+    private void toggleAudioStream() {
+        isAudioEnabled = !isAudioEnabled;
+        if (isAudioEnabled) {
+            startAudioStream();
+        } else {
+            stopAudioStream();
+        }
+    }
+
+    private void startAudioStream() {
+        stopAudioStream(); // stop any previous instance first
+
+        String audioUrl = "http://" + cameraIp + ":8787/api/audio/stream";
+        try {
+            audioPlayer = new MediaPlayer();
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                audioPlayer.setAudioAttributes(
+                    new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                );
+            } else {
+                //noinspection deprecation
+                audioPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
+            }
+
+            // Route audio through earphone jack if connected, else speaker
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (am != null) {
+                am.setMode(AudioManager.MODE_NORMAL);
+                am.setSpeakerphoneOn(false); // prefer earphone when plugged in
+            }
+
+            audioPlayer.setDataSource(audioUrl);
+            audioPlayer.setOnPreparedListener(mp -> {
+                mp.start();
+                runOnUiThread(() -> {
+                    if (btnAudioToggle != null) {
+                        btnAudioToggle.setText("🔊 Audio ON  (PC Mic → Earphone)");
+                        btnAudioToggle.setBackgroundTintList(
+                            ColorStateList.valueOf(0xFF10B981));
+                    }
+                    Toast.makeText(this, "🔊 PC Studio Audio Started!", Toast.LENGTH_SHORT).show();
+                });
+            });
+            audioPlayer.setOnErrorListener((mp, what, extra) -> {
+                Log.e(TAG, "AudioPlayer error: what=" + what + " extra=" + extra);
+                runOnUiThread(() -> {
+                    isAudioEnabled = false;
+                    if (btnAudioToggle != null) {
+                        btnAudioToggle.setText("🔇 Audio OFF  (PC Mic → Earphone)");
+                        btnAudioToggle.setBackgroundTintList(
+                            ColorStateList.valueOf(0xFF374151));
+                    }
+                    Toast.makeText(this,
+                        "⚠️ Audio stream error. PC Studio running ද? IP: " + cameraIp,
+                        Toast.LENGTH_LONG).show();
+                });
+                return true;
+            });
+            audioPlayer.setOnCompletionListener(mp -> {
+                // Stream ended — auto reconnect after 2s if still enabled
+                if (isAudioEnabled) {
+                    new Handler(Looper.getMainLooper()).postDelayed(this::startAudioStream, 2000);
+                }
+            });
+
+            audioPlayer.prepareAsync(); // non-blocking
+            if (btnAudioToggle != null) {
+                btnAudioToggle.setText("⏳ Connecting Audio...");
+                btnAudioToggle.setBackgroundTintList(
+                    ColorStateList.valueOf(0xFFF59E0B));
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start audio stream: " + e.getMessage());
+            isAudioEnabled = false;
+            if (btnAudioToggle != null) {
+                btnAudioToggle.setText("🔇 Audio OFF  (PC Mic → Earphone)");
+                btnAudioToggle.setBackgroundTintList(
+                    ColorStateList.valueOf(0xFF374151));
+            }
+            Toast.makeText(this, "Audio start failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void stopAudioStream() {
+        if (audioPlayer != null) {
+            try {
+                if (audioPlayer.isPlaying()) audioPlayer.stop();
+                audioPlayer.reset();
+                audioPlayer.release();
+            } catch (Exception ignored) {}
+            audioPlayer = null;
+        }
+        runOnUiThread(() -> {
+            if (btnAudioToggle != null) {
+                btnAudioToggle.setText("🔇 Audio OFF  (PC Mic → Earphone)");
+                btnAudioToggle.setBackgroundTintList(
+                    ColorStateList.valueOf(0xFF374151));
+            }
+        });
     }
 
     private void showGuideDialog() {
@@ -962,5 +1085,7 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ignored) {}
         if (canonEngine != null) canonEngine.stop();
         if (localServer != null) localServer.stop();
+        isAudioEnabled = false;
+        stopAudioStream();
     }
 }
