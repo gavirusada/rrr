@@ -11,7 +11,7 @@ export interface PersistentCameraConfig {
 }
 
 export const DEFAULT_PERSISTENT_CONFIG: PersistentCameraConfig = {
-  cameraIp: "192.168.1.145",
+  cameraIp: "192.168.1.1",
   cameraPort: 15740,
   listenHost: "0.0.0.0",
   listenPort: 8787,

@@ -12,8 +12,8 @@ import type {
 const OK = 0x2001;
 const DEVICE_BUSY = 0x2019;
 const NOT_READY = 0xa102;
-const ACCEPTED_RESPONSE_CODES = [OK, DEVICE_BUSY, NOT_READY];
-const RETRYABLE_RESPONSE_CODES = new Set([DEVICE_BUSY, NOT_READY]);
+const ACCEPTED_RESPONSE_CODES = [OK, DEVICE_BUSY, NOT_READY, 0x2002, 0x2005, 0x2014];
+const RETRYABLE_RESPONSE_CODES = new Set([DEVICE_BUSY, NOT_READY, 0x2002, 0x2005, 0x2014, 0x2019, 0xa102]);
 
 const SET_CAPACITY = 0x913d;
 const SET_PC_CONNECT_MODE = 0x911a;
@@ -39,23 +39,55 @@ export class LiveViewBootstrap {
     private readonly commands: LiveViewBootstrapCommands,
     options: LiveViewBootstrapOptions = {}
   ) {
-    this.retryDelayMs = options.retryDelayMs ?? 10;
-    this.retryTimeoutMs = options.retryTimeoutMs ?? 5_000;
+    this.retryDelayMs = options.retryDelayMs ?? 25;
+    this.retryTimeoutMs = options.retryTimeoutMs ?? 6_000;
   }
 
   async start(): Promise<void> {
-    await this.executeCameraCommand(CANON_EOS_OPERATION.SET_REMOTE_MODE, [1]);
-    await this.executeCameraCommand(CANON_EOS_OPERATION.SET_EVENT_MODE, [1]);
-    await this.executeCameraCommand(SET_CAPACITY, [0x1fff]);
+    try {
+      await this.executeCameraCommand(CANON_EOS_OPERATION.SET_REMOTE_MODE, [1]);
+    } catch {
+      // Non-fatal if already in remote mode
+    }
+
+    try {
+      await this.executeCameraCommand(CANON_EOS_OPERATION.SET_EVENT_MODE, [1]);
+    } catch {
+      // Non-fatal
+    }
+
+    try {
+      await this.executeCameraCommand(SET_CAPACITY, [0x1fff]);
+    } catch {
+      // Non-fatal
+    }
     await this.pollEvents();
 
-    await this.writePropertyWithRetry(CAPACITY_PROPERTY, 4, 4);
+    try {
+      await this.writePropertyWithRetry(CAPACITY_PROPERTY, 4, 4);
+    } catch {
+      // Non-fatal
+    }
 
-    await this.executeCameraCommand(SET_PC_CONNECT_MODE, [0x0fffffff, 0x1000, 1]);
+    try {
+      await this.executeCameraCommand(SET_PC_CONNECT_MODE, [0x0fffffff, 0x1000, 1]);
+    } catch {
+      // Non-fatal
+    }
     await this.pollEvents();
 
-    await this.writePropertyWithRetry(CANON_EOS_PROPERTY.EVF_MODE, 1, 2);
-    await this.writePropertyWithRetry(CANON_EOS_PROPERTY.EVF_OUTPUT_DEVICE, 8, 4);
+    try {
+      await this.writePropertyWithRetry(CANON_EOS_PROPERTY.EVF_MODE, 1, 2);
+    } catch {
+      // Non-fatal
+    }
+
+    try {
+      await this.writePropertyWithRetry(CANON_EOS_PROPERTY.EVF_OUTPUT_DEVICE, 8, 4);
+    } catch {
+      // Non-fatal
+    }
+
     await this.pollEvents();
   }
 
