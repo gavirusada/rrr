@@ -8,6 +8,8 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.media.AudioDeviceInfo;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -19,6 +21,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.webkit.ConsoleMessage;
+import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
@@ -39,11 +42,12 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 /**
- * Gaviru Cam Studio — Built-in Desktop Browser
- * Full desktop WebView browser with Canon 4000D Virtual Webcam Injection.
- * When any website (Facebook Live, YouTube, StreamYard, VDO.Ninja, etc.)
- * calls getUserMedia/getDisplayMedia, it directly receives the Canon 4000D
- * DSLR Live View feed + real microphone audio (Earphone Jack Mic / built-in mic)!
+ * Gaviru Cam Studio — Built-in Desktop Live Browser
+ * Fully customized for Facebook Live, YouTube, StreamYard & WebRTC streaming:
+ * 1. Background persistence: Keeps running even when minimized / screen turns off!
+ * 2. Full Desktop User-Agent: Facebook Live Producer opens without redirecting to m.facebook.com
+ * 3. Canon 4000D Virtual Webcam Shim: Injects Canon DSLR 30FPS stream directly into WebRTC getUserMedia
+ * 4. Priority Earphone Jack Mic: Automatically selects headset mic (3.5mm jack) as system audio input
  */
 public class BrowserActivity extends AppCompatActivity {
 
@@ -60,6 +64,7 @@ public class BrowserActivity extends AppCompatActivity {
 
     private GaviruCamForegroundService serviceInstance = null;
     private boolean isBound = false;
+    private AudioManager audioManager = null;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -81,10 +86,14 @@ public class BrowserActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Keep screen awake while streaming live
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(R.layout.activity_browser);
 
-        // Bind to background ForegroundService to access live Canon MJPEG frames
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        routeAudioToEarphoneJack();
+
+        // Connect with the Foreground Service to fetch Canon frames continuously
         serviceInstance = GaviruCamForegroundService.getInstance();
         bindService(new Intent(this, GaviruCamForegroundService.class), serviceConnection, Context.BIND_AUTO_CREATE);
 
@@ -108,25 +117,52 @@ public class BrowserActivity extends AppCompatActivity {
         webView.loadUrl(homeUrl);
     }
 
+    /**
+     * Prioritizes 3.5mm Earphone Jack microphone over built-in phone mic.
+     */
+    private void routeAudioToEarphoneJack() {
+        try {
+            if (audioManager != null) {
+                audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    AudioDeviceInfo[] devices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS);
+                    for (AudioDeviceInfo dev : devices) {
+                        if (dev.getType() == AudioDeviceInfo.TYPE_WIRED_HEADSET) {
+                            audioManager.setCommunicationDevice(dev);
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private void setupWebView() {
         WebSettings ws = webView.getSettings();
 
-        // ── Core JS + Storage ──────────────────────────────────────────────
+        // ── Core JS + Modern Web Storage ──────────────────────────────────
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         ws.setDatabaseEnabled(true);
         ws.setAllowFileAccess(true);
         ws.setAllowContentAccess(true);
 
-        // ── Desktop mode ───────────────────────────────────────────────────
+        // Cookies support for Facebook / Google logins
+        CookieManager cookieManager = CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cookieManager.setAcceptThirdPartyCookies(webView, true);
+        }
+
+        // ── Desktop mode: Strict PC Chrome identity ──────────────────────
         ws.setUseWideViewPort(true);
         ws.setLoadWithOverviewMode(true);
         ws.setSupportZoom(true);
         ws.setBuiltInZoomControls(true);
         ws.setDisplayZoomControls(false);
 
-        // Desktop Chrome user-agent so Facebook, YouTube, StreamYard render full desktop live studios
+        // True Desktop Windows Chrome UA: Prevents Facebook from redirecting to mobile view
         ws.setUserAgentString(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -176,6 +212,12 @@ public class BrowserActivity extends AppCompatActivity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
                 String url = req.getUrl().toString();
+                // If Facebook tries to redirect to mobile URL, force desktop producer
+                if (url.contains("m.facebook.com/live") || url.contains("m.facebook.com")) {
+                    String desktopUrl = url.replace("m.facebook.com", "www.facebook.com");
+                    view.loadUrl(desktopUrl);
+                    return true;
+                }
                 if (url.startsWith("http://") || url.startsWith("https://")) {
                     view.loadUrl(url);
                     return true;
@@ -191,7 +233,7 @@ public class BrowserActivity extends AppCompatActivity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(PermissionRequest request) {
-                // Auto-grant Camera + Mic permissions to websites so live stream works instantly!
+                // Auto-grant Camera + Mic permissions to Facebook Live / YouTube / WebRTC
                 runOnUiThread(() -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                         request.grant(request.getResources());
@@ -210,7 +252,7 @@ public class BrowserActivity extends AppCompatActivity {
                 progressBar.setProgress(progress);
                 if (progress == 100) progressBar.setVisibility(View.GONE);
                 else progressBar.setVisibility(View.VISIBLE);
-                if (progress > 30) {
+                if (progress > 25) {
                     injectCanonWebcamShim(view);
                 }
             }
@@ -258,10 +300,9 @@ public class BrowserActivity extends AppCompatActivity {
     }
 
     /**
-     * Injects the WebRTC virtual webcam shim into the website.
-     * Hooks navigator.mediaDevices.getUserMedia & navigator.mediaDevices.enumerateDevices
-     * so that the site automatically receives Canon 4000D DSLR live video feed
-     * combined with the real microphone audio (earphone jack / built-in mic).
+     * Injects the WebRTC virtual webcam shim into Facebook Live Producer or any webpage.
+     * Replaces default phone selfie/rear cameras with Canon EOS 4000D Live View stream.
+     * Hooks getUserMedia to bind Canon video + 3.5mm Earphone Jack Microphone audio.
      */
     private void injectCanonWebcamShim(WebView view) {
         String js =
@@ -349,10 +390,14 @@ public class BrowserActivity extends AppCompatActivity {
             "      for (let i = 0; i < realList.length; i++) {" +
             "        const d = realList[i];" +
             "        if (d.kind === 'audioinput') {" +
+            "          let lbl = d.label || ('Microphone ' + (i + 1));" +
+            "          if (lbl.toLowerCase().includes('headset') || lbl.toLowerCase().includes('wired')) {" +
+            "            lbl = '🎧 Earphone Jack Mic (3.5mm Headset)';" +
+            "          }" +
             "          devices.push({" +
             "            deviceId: d.deviceId || ('audio_' + i)," +
             "            kind: 'audioinput'," +
-            "            label: d.label || ('🎙️ Microphone ' + (i + 1))," +
+            "            label: lbl," +
             "            groupId: d.groupId || 'audio-group'," +
             "            toJSON: function() { return this; }" +
             "          });" +
@@ -434,6 +479,7 @@ public class BrowserActivity extends AppCompatActivity {
         if (btnVdo != null) btnVdo.setOnClickListener(v ->
             webView.loadUrl("https://vdo.ninja/"));
 
+        // Facebook Live Producer URL
         if (btnFb != null) btnFb.setOnClickListener(v ->
             webView.loadUrl("https://www.facebook.com/live/producer"));
 
@@ -512,16 +558,19 @@ public class BrowserActivity extends AppCompatActivity {
         }
     }
 
+    // ── KEEP RUNNING IN BACKGROUND! ──────────────────────────────────────────
+    // DO NOT call webView.onPause() so Facebook Live / YouTube / WebRTC streams
+    // keep running 100% uninterrupted even when app goes to background or home screen!
     @Override
     protected void onPause() {
         super.onPause();
-        webView.onPause();
+        // Intentional: Do not pause webView timers/streams
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        webView.onResume();
+        routeAudioToEarphoneJack();
     }
 
     @Override
@@ -530,7 +579,9 @@ public class BrowserActivity extends AppCompatActivity {
             unbindService(serviceConnection);
             isBound = false;
         }
-        webView.destroy();
+        if (webView != null) {
+            webView.destroy();
+        }
         super.onDestroy();
     }
 }
