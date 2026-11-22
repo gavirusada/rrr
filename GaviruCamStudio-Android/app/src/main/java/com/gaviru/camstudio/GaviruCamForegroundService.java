@@ -51,6 +51,12 @@ public class GaviruCamForegroundService extends Service {
     private String roomName = "gaviru_cam_pro";
     private boolean isRunning = false;
 
+    private static GaviruCamForegroundService instance = null;
+
+    public static GaviruCamForegroundService getInstance() {
+        return instance;
+    }
+
     public class LocalBinder extends Binder {
         public GaviruCamForegroundService getService() {
             return GaviruCamForegroundService.this;
@@ -66,6 +72,7 @@ public class GaviruCamForegroundService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        instance = this;
         createNotificationChannel();
         acquireLocks();
 
@@ -299,6 +306,7 @@ public class GaviruCamForegroundService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        if (instance == this) instance = null;
         stopEngines();
 
         try {
