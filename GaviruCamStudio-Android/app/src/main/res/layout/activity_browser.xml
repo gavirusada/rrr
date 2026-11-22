@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#080A0F">
+
+    <!-- ── Top Browser Bar ─────────────────────────────────────────────── -->
+    <LinearLayout
+        android:id="@+id/browserTopBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#11151E"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="4dp">
+
+        <!-- Row 1: title + close -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="4dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="🌐 Gaviru Browser"
+                android:textColor="#F8FAFC"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <ImageButton
+                android:id="@+id/btnBrowserClose"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:background="#DC2626"
+                android:contentDescription="Close" />
+
+        </LinearLayout>
+
+        <!-- Row 2: Back / Forward / Refresh / URL bar / Home -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <ImageButton
+                android:id="@+id/btnBrowserBack"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:src="@android:drawable/ic_media_previous"
+                android:background="#1E293B"
+                android:layout_marginEnd="4dp"
+                android:contentDescription="Back"
+                android:alpha="0.4" />
+
+            <ImageButton
+                android:id="@+id/btnBrowserForward"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:src="@android:drawable/ic_media_next"
+                android:background="#1E293B"
+                android:layout_marginEnd="4dp"
+                android:contentDescription="Forward"
+                android:alpha="0.4" />
+
+            <ImageButton
+                android:id="@+id/btnBrowserRefresh"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:src="@android:drawable/ic_menu_rotate"
+                android:background="#1E293B"
+                android:layout_marginEnd="4dp"
+                android:contentDescription="Refresh" />
+
+            <!-- URL input bar -->
+            <EditText
+                android:id="@+id/editUrl"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:hint="🔍 URL or search..."
+                android:textColor="#F8FAFC"
+                android:textColorHint="#64748B"
+                android:textSize="12sp"
+                android:background="#1E293B"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:inputType="textUri"
+                android:imeOptions="actionGo"
+                android:singleLine="true"
+                android:layout_marginEnd="4dp"
+                android:textCursorDrawable="@null" />
+
+            <ImageButton
+                android:id="@+id/btnBrowserHome"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:src="@android:drawable/ic_menu_compass"
+                android:background="#059669"
+                android:contentDescription="Home" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- ── Progress Bar ────────────────────────────────────────────────── -->
+    <ProgressBar
+        android:id="@+id/browserProgress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:max="100"
+        android:progressTint="#6EE7B7"
+        android:visibility="gone" />
+
+    <!-- ── Browser WebView ─────────────────────────────────────────────── -->
+    <WebView
+        android:id="@+id/browserWebView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- ── Quick Links Bottom Row ─────────────────────────────────────── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#0D1117"
+        android:padding="4dp">
+
+        <Button
+            android:id="@+id/btnQuickVdo"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:text="📡 VDO.Ninja"
+            android:textSize="10sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#6D28D9"
+            android:layout_marginEnd="3dp" />
+
+        <Button
+            android:id="@+id/btnQuickFb"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:text="📘 FB Live"
+            android:textSize="10sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#1D4ED8"
+            android:layout_marginEnd="3dp" />
+
+        <Button
+            android:id="@+id/btnQuickYt"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:text="▶ YouTube"
+            android:textSize="10sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#DC2626"
+            android:layout_marginEnd="3dp" />
+
+        <Button
+            android:id="@+id/btnQuickCam"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:text="📷 Cam Push"
+            android:textSize="10sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#059669" />
+
+    </LinearLayout>
+
+</LinearLayout>

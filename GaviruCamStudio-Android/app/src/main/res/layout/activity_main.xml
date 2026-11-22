@@ -206,11 +206,22 @@
                 android:id="@+id/btnCopyCanonObsLink"
                 android:layout_width="0dp"
                 android:layout_height="38dp"
-                android:layout_weight="0.8"
+                android:layout_weight="0.7"
                 android:text="📋 Copy Link"
-                android:textSize="11.5sp"
+                android:textSize="10sp"
                 android:textColor="#FFFFFF"
-                android:backgroundTint="#D97706" />
+                android:backgroundTint="#D97706"
+                android:layout_marginEnd="4dp" />
+
+            <Button
+                android:id="@+id/btnOpenBrowser"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="0.9"
+                android:text="🌍 Browser"
+                android:textSize="10sp"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#7C3AED" />
 
         </LinearLayout>
 

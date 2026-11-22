@@ -188,6 +188,7 @@ public class MainActivity extends AppCompatActivity {
         Button btnShutter = findViewById(R.id.btnShutter);
         Button btnOpenChrome = findViewById(R.id.btnOpenChrome);
         Button btnCopyCanonObsLink = findViewById(R.id.btnCopyCanonObsLink);
+        Button btnOpenBrowser = findViewById(R.id.btnOpenBrowser);
         Button btnFar3 = findViewById(R.id.btnFar3);
         Button btnFar1 = findViewById(R.id.btnFar1);
         Button btnNear1 = findViewById(R.id.btnNear1);
@@ -214,6 +215,20 @@ public class MainActivity extends AppCompatActivity {
             String obsLink = "https://vdo.ninja/?view=" + roomName + "&cleanoutput";
             showObsLinkDialog(obsLink);
         });
+
+        // 🌍 Built-in Browser — desktop WebView, any site
+        if (btnOpenBrowser != null) {
+            btnOpenBrowser.setOnClickListener(v -> {
+                // Auto start VDO push so camera is live before browser opens
+                if (!isBroadcastingToObs) toggleCanonObsStreaming();
+                Intent browserIntent = new Intent(this, BrowserActivity.class);
+                // Default to VDO.Ninja push so user can immediately go live
+                String pushUrl = "https://vdo.ninja/?push=" + roomName +
+                    "&webcam&autostart&videobitrate=6000&audiobitrate=128&fps=30";
+                browserIntent.putExtra("url", pushUrl);
+                startActivity(browserIntent);
+            });
+        }
 
         btnFar3.setOnClickListener(v -> driveFocus(1, 3));
         btnFar1.setOnClickListener(v -> driveFocus(1, 1));
